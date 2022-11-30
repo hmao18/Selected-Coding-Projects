@@ -1,0 +1,58 @@
+---
+title: "STAT486 MP4"
+author: "Hongyu Mao hm27"
+date: "4/5/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 
+```{r}
+path.df = "/Users/maohongyu/Desktop/MP4/Archive/";
+
+yr_mmreturn <- data.frame(matrix(ncol = 3, nrow = 0))
+colnames(yr_mmreturn) <- c("year", "ew_r", "mw_r")
+yrcount <- 1
+
+for (year in c(1970:1971)) 
+{
+  yrdata <- read.table( paste(path.df, year, ".csv", sep = ""), header = TRUE, sep = ",")
+  na.omit(yrdata)
+  yrlist <- data.frame(matrix(ncol = 4, nrow = 0))
+  colnames(yrlist) <- c("PERMNO", "med", "first_p", "last_p")
+  cocount <- 1
+  for (company in unique(yrdata$PERMNO))
+  {
+    codata <- yrdata[yrdata$PERMNO == company, ]
+    ratio <- c()
+    for (i in seq(2, nrow(codata)))
+    {
+      ratio <- c(ratio, as.numeric(codata$PRC[i]) / as.numeric(codata$PRC[i-1]))
+    }
+    # Get the median for the current year
+    med <- median(ratio)
+    # Sort codata by date
+    codata <- codata[order(as.Date(as.character(codata$date), format = "%Y%m%d")), ]
+    # Get first day price
+    first_p <- codata$PRC[1]
+    # Get last day price 
+    last_p <- codata$PRC[nrow(codata)]
+    # Populate all the essential statistics for the current year
+    yrlist[cocount, ] <- c(company, med, first_p, last_p) 
+    cocount <- cocount + 1
+  }
+  top20 <- yrlist[order(-yrlist$med), ][1:20, ]
+  ew_r <- (sum(top20$last_p) - sum(top20$first_p)) / sum(top20$first_p)
+  mw <- top20$med / sum(top20$med)
+  mw_r <- (sum(top20$last_p * mw) - sum(top20$first_p * mw)) / sum(top20$first_p * mw)
+  yr_mmreturn[yrcount, ] <- c(year, ew_r, mw_r)
+  yrcount <- yrcount + 1
+}
+
+View(yr_mmreturn)
+
+```
+
