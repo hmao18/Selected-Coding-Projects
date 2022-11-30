@@ -1,0 +1,1730 @@
+---
+title: "STAT435 Mao"
+output: html_document
+---
+## Load Packages
+```{r, echo  = FALSE}
+# BS"D
+# Add the names of all the packages that you used in the pipeline to list.of.packages
+list.of.packages <- c("tidyverse", 
+                      "dplyr",
+                      "ggmap", 
+                      "forcats",
+                      "maps",
+                      "ggvoronoi", 
+                      "fda", 
+                      "rpart",
+                      "ModelMetrics",
+                      "spatial",
+                      "tidyr",
+                      "ggplot2",
+                      "lubridate",
+                      "factoextra", 
+                      "NbClust",
+                      "readr",
+                      "readxl",
+                      "cluster",
+                      "ggplot2",
+                      "rstudioapi",
+                      "randomForest",
+                      "cluster",
+                      "vars",
+                      "matlabr",
+                      "R.matlab",
+                      "lmtest"
+                      )
+
+# Automatically install any necessary packages that have not already been installed 
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+# load all the packages that you used in the pipeline here
+library(tidyverse)
+library(dplyr)
+library("dplyr")
+library("ggmap")
+library("forcats")
+library(maps)
+library(ggvoronoi)
+library("fda")
+library('rpart')
+library (ModelMetrics)
+library(spatial)
+library(tidyr)
+library(ggplot2)
+library(lubridate)
+library(factoextra)
+library(NbClust)
+library(readr)
+library(readxl)
+library(cluster)
+library(ggplot2)
+library(randomForest)
+library(cluster)
+library("reshape2")
+library(matlabr)
+library(R.matlab)
+library(vars)
+
+
+# Install BiocManager for Consensus Clustering. NOTE: This only works on Mac computers, in our experience.
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("ConsensusClusterPlus", version = "3.8")
+
+```
+## Detect Directory
+```{r}
+# Automatically detect the file path of this file and set the working directory the to folder where this file is located
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+# Print out the current working directory 
+getwd()
+```
+
+
+
+## Part I. Functions
+## Part I. 1. Functions for Data Wrangling
+```{r}
+# Function: combine_pollutant_yr
+# This function combines the pollutant data from all years into one single dataset, and removes all the rows containing NAs.
+# Input:
+# "prefix": the prefix in the name of each dataset before the number of year. A string, either "PM", "ozone", or "fourth_".
+# "start_yr": the first year of the pollutant data that we want to combine. A number like "2000"
+# "end_yr": the last year of the pollutant data that we want to combine. A number like "2018"
+# Output:
+# A single data set that has how ever many (as indicated by start_yr and end_yr) different years of pollutant datasets in one dataset.
+combine_yr_remove_NA <- function(prefix, start_yr, end_yr) {
+  # initially, put the first year's dataset in to the whole dataset 
+  temp_all <- get(paste(prefix, start_yr, sep = "")) 
+  # then add each year's data on the bottom to the whole dataset
+  for (i in c((start_yr + 1) : end_yr)) {
+    str <- paste(prefix, i, sep = "")
+    df <- eval(as.symbol(str)) 
+    # cat("\n iteration", i)
+    temp_all <- rbind(temp_all, df)
+    # cat("\n iteration", i, "\n")
+  }
+  return (temp_all)
+}
+```
+
+
+## Part I. 1. Functions for Data Wrangling
+```{r}
+#### Standardize and separate the variable Date
+
+separate_date <- function(dataset){
+  dataset %>%
+    
+  #Remove irrelevant variabl es
+  dplyr::select(-DAILY_OBS_COUNT, -DAILY_AQI_VALUE) %>%
+    
+  #Separate the Date variable into Month, Day, and Year
+  separate(Date, into = c("Month", "Day", "Year"), convert = TRUE) -> dataset_separated
+  return(dataset_separated)
+}
+
+standardize_PM_date <- function(dataset_separated){
+  Year <- dataset_separated$Year
+  
+  # Standardize the format of Year
+  Year[Year=="1"] <- 2001
+  Year[Year=="7"] <- 2007
+  dataset_separated$Year <- Year
+  return(dataset_separated)
+}
+
+#### Merge datasets
+
+combine_pollutants_nonnegative <- function(ozone_separated, PM_separated){
+  ozone_separated %>%
+    
+  # Join the two pollutant datasets
+  left_join(PM_separated) -> both_pollutants_combined
+
+  # Remove NA
+  both_pollutants_combined[complete.cases(both_pollutants_combined),] -> both_pollutants_combined
+
+  # Remove nonpositive concentrations
+  both_pollutants_combined <- filter(both_pollutants_combined, Daily.Max.8.hour.Ozone.Concentration > 0, Daily.Mean.PM2.5.Concentration >0)
+
+  return(both_pollutants_combined)
+}
+
+ozone_positive <- function(ozone_separated){
+  ozone_separated %>%
+    
+  # Remove nonpositive concentrations
+  filter(Daily.Max.8.hour.Ozone.Concentration > 0) -> ozone_nonnegative
+  return(ozone_nonnegative)
+}
+
+PM_positive <- function(PM_separated){
+  PM_separated %>%
+    
+  # Remove nonpositive concentrations
+  filter(Daily.Mean.PM2.5.Concentration > 0) -> PM_nonnegative
+  return(PM_nonnegative)
+}
+
+ozone_April_to_Octorber <- function(ozone_nonnegative){
+  ozone_nonnegative %>%
+    
+  # Select data from April through Octorber
+  filter(Month > 3, Month < 11) -> ozone_nonnegative_4_10
+  return(ozone_nonnegative_4_10)
+}
+
+#### Select instances of exceedance
+
+exceed_ozone <- function(ozone_nonnegative){
+  ozone_nonnegative %>%
+    
+  # Select days where ozone concentration exceeded the federal standard
+  filter(Daily.Max.8.hour.Ozone.Concentration > 0.07) -> exceedance_ozone
+  return(exceedance_ozone)
+}
+
+exceed_PM <- function(PM_nonnegative){
+  PM_nonnegative %>%
+    
+  # Select days where PM concentration exceeded the federal standard
+  filter(Daily.Mean.PM2.5.Concentration > 35) -> exceedance_PM
+  return(exceedance_PM)
+}
+
+exceed_both <- function(both_pollutants_combined){
+  both_pollutants_combined %>%
+    
+  # Select days where both ozone and PM concentrations exceeded the federal standard
+  filter(Daily.Max.8.hour.Ozone.Concentration > 0.07, Daily.Mean.PM2.5.Concentration > 35) -> exceedance_both
+  return(exceedance_both)
+}
+
+#### Wrangle the Meteorology dataset
+
+separate_meteorology <- function(Meteorology){
+  Meteorology %>% 
+  
+  # Select relevant variables in the Meteorology dataset
+  ##### Previously, 10 variables were selected, now only 4 were selected
+  dplyr::select(DATE, PRCP, TMAX, TMIN) %>%
+    
+  # Separate the Date variable into Year, Month, and Day
+  separate(DATE, into = c("Month", "Day", "Year"), convert = TRUE) -> Meteorology_separated
+  
+  # Make a longyear variable so that year can be 4-digit
+  Meteorology_separated$Year[Meteorology_separated$Year >= 80 & Meteorology_separated$Year <= 99] <-
+    Meteorology_separated$Year[Meteorology_separated$Year >= 80] + 1900
+  Meteorology_separated$Year[Meteorology_separated$Year <= 18 & Meteorology_separated$Year >= 00] <-
+    Meteorology_separated$Year[Meteorology_separated$Year <= 18] + 2000
+  
+  return(Meteorology_separated)
+}
+
+### Mao changed this Combine_Meteorology_PM function on April 2, 2019!!!
+Combine_Meteorology_PM <- function(Meteorology_separated, PM_all_separated) {
+  
+  Meteorology_separated %>%
+    mutate(shortyear = as.character(Year)) -> met
+
+  PM_all_separated %>%
+    # mutate(charyear = as.character(Year)) %>%
+    # mutate(shortyear = substring(charyear, 3)) %>%
+    group_by(Year, Month, Day) %>%
+    summarise(med.pollutant = median(Daily.Mean.PM2.5.Concentration)) %>%
+    left_join(met) -> Combined_M_PM
+
+  return(na.omit(Combined_M_PM))
+}
+
+
+### Mao changed this Combine_Meteorology_ozone function on April 2, 2019!!!
+Combine_Meteorology_ozone <- function(Meteorology_separated, ozone_all_separated) {
+  
+  Meteorology_separated %>%
+    mutate(shortyear = as.character(Year)) -> met
+
+  ozone_all_separated %>%
+    # mutate(charyear = as.character(Year)) %>%
+    # mutate(shortyear = substring(charyear, 3)) %>%
+    group_by(Year, Month, Day) %>%
+    summarise(med.pollutant = median(Daily.Max.8.hour.Ozone.Concentration)) %>%
+    left_join(met) -> Combined_M_ozone
+
+  return(na.omit(Combined_M_ozone))
+}
+```
+
+## Part I. 2. Functions for EDA (1) Heat Map
+```{r}
+# ------This function's ozone part draws average ozone -------
+# Function: draw_pollutant_map: draw a heat map for pollutant in a specific year
+draw_pollutant_map <- function(df, poll_type, yr) {
+
+  df_name <-deparse(substitute(df)) # get the data frame name to write title
+  title_str <- paste("Average", poll_type, "for the Year of: \n", yr)
+  # map options for PM
+  if (poll_type == "PM") {
+  average_site_latlon <- group_by(df, Site.Name) %>%
+    summarize(lat = mean(SITE_LATITUDE), lon = mean(SITE_LONGITUDE),
+              ave_PM = mean(Daily.Mean.PM2.5.Concentration))
+  temp_map <- qmplot(lon, lat, data = average_site_latlon,
+                   maptype = "toner-lite", darken = 0.1, zoom = 10,
+                   color = ave_PM) +
+            scale_color_gradient(low="blue", high="red",
+                                 limits = c(floor(min_ave_PM), ceiling(max_ave_PM)), 
+                                 breaks = round(seq(floor(min_ave_PM), ceiling(max_ave_PM), length.out = 4)),
+                                 oob = scales::squish) + # squish the values that lie beyond the "limits" to display the extreme color
+            geom_point(size = 4.5, guide = FALSE) +
+            stat_voronoi(geom="path") +
+            ggtitle(title_str) + 
+            labs(color = "Average PM \n (ug/m3 LC) \n") +
+            theme(plot.title = element_text(size = 18.5, face = "bold"),
+                  plot.margin = unit(c(1,0,0,0), "cm"),
+                  legend.text=element_text(size=16, face = "bold"),
+                  legend.title=element_text(size=16, face = "bold"))  
+  }
+  # map options for ozone
+  else {
+  average_site_latlon <- group_by(df, Site.Name) %>%
+    summarize(lat = mean(SITE_LATITUDE), lon = mean(SITE_LONGITUDE),
+              ave_ozone = mean(Daily.Max.8.hour.Ozone.Concentration))
+  temp_map <- qmplot(lon, lat, data = average_site_latlon,
+                     maptype = "toner-lite", darken = 0.1, zoom = 10,
+                     color = ave_ozone) +
+              scale_color_gradient(low="blue", high="red",
+                                   limits = c(floor_dec(min_ave_ozone,3), ceiling_dec(max_ave_ozone,3)),
+                                   breaks = round(seq(floor_dec(min_ave_ozone,3), ceiling_dec(max_ave_ozone,3), length.out = 4), 3),
+                                   oob = scales::squish) + # squish the values that lie beyond the "limits" to display the extreme color
+              geom_point(size = 4, guide = FALSE) +
+              stat_voronoi(geom="path") +
+              ggtitle(title_str) + 
+              labs(color = "Average Ozone \n (parts per million) \n") +
+              theme(plot.title = element_text(size = 18.5, face = "bold"),
+                    plot.margin = unit(c(1,0,0,0), "cm"),
+                    legend.text=element_text(size=16, face = "bold"),
+                    legend.title=element_text(size=16, face = "bold"))  
+  }
+  return(temp_map)
+}
+
+# Functions to floor/ceiling a number to a specified decimal place
+floor_dec <- function(x, level=1) round(x - 5*10^(-level-1), level)
+ceiling_dec <- function(x, level=1) round(x + 5*10^(-level-1), level)
+
+
+```
+
+## Part I. 2. Functions for EDA (2) Time Series and More
+```{r}
+#### Compute average concentration under different scales
+
+compute_average_ozone <- function(ozone, criterion1, criterion2){
+  
+  if (is.null(criterion2)) {
+  ozone %>%
+  group_by_(criterion1) %>%
+  summarise(Daily.Max.8.hour.Ozone.Concentration = mean(Daily.Max.8.hour.Ozone.Concentration)) -> average_ozone
+
+} else {
+  ozone %>%
+  group_by_(criterion1, criterion2) %>%
+  summarise(Daily.Max.8.hour.Ozone.Concentration = mean(Daily.Max.8.hour.Ozone.Concentration)) -> average_ozone
+}
+  return(average_ozone)
+}
+
+compute_average_PM <- function(PM, criterion1, criterion2){
+  
+  if (is.null(criterion2)) {
+  PM %>%
+  group_by_(criterion1) %>%
+  summarise(Daily.Mean.PM2.5.Concentration = mean(Daily.Mean.PM2.5.Concentration)) -> average_PM
+} else {
+  PM %>%
+  group_by_(criterion1, criterion2) %>%
+  summarise(Daily.Mean.PM2.5.Concentration = mean(Daily.Mean.PM2.5.Concentration)) -> average_PM
+}
+  return(average_PM) 
+}
+
+#### Compute the fourth highest ozone concentration under different scale
+
+fourth_highest_ozone <- function(ozone, criterion1, criterion2){
+  
+  if (is.null(criterion2)) {
+  ozone %>%
+  group_by_(criterion1) %>%
+  top_n(4, Daily.Max.8.hour.Ozone.Concentration) %>%
+  summarise(Daily.Max.8.hour.Ozone.Concentration = min(Daily.Max.8.hour.Ozone.Concentration)) -> ozone4th
+
+} else {
+  ozone %>%
+  group_by_(criterion1, criterion2) %>%
+  top_n(4, Daily.Max.8.hour.Ozone.Concentration) %>%
+  summarise(Daily.Max.8.hour.Ozone.Concentration = min(Daily.Max.8.hour.Ozone.Concentration)) -> ozone4th
+}
+  return(ozone4th)
+}
+
+
+#### Compute concentrations of different percentiles (1%, 10%, 90%, 99%) under different scales
+
+ozone_percentile_table <- function(ozone, criterion1, criterion2){
+  
+  if (is.null(criterion2)) {
+  ozone %>% 
+  group_by_(criterion1) %>%
+  summarise(`1%`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=0.01),
+            `10%`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=0.1),
+            `90%`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=0.9),
+            `99%`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=0.99),
+            `max`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=1),
+            avg=mean(Daily.Max.8.hour.Ozone.Concentration),
+            range =max(Daily.Max.8.hour.Ozone.Concentration)-min(Daily.Max.8.hour.Ozone.Concentration)) -> ozone_percentile
+} else {
+  ozone %>% 
+  group_by_(criterion1, criterion2) %>%
+  summarise(`1%`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=0.01),
+            `10%`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=0.1),
+            `90%`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=0.9),
+            `99%`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=0.99),
+            `max`=quantile(Daily.Max.8.hour.Ozone.Concentration, probs=1),
+            avg=mean(Daily.Max.8.hour.Ozone.Concentration),
+            range =max(Daily.Max.8.hour.Ozone.Concentration)-min(Daily.Max.8.hour.Ozone.Concentration)) -> ozone_percentile
+}
+  return(ozone_percentile)
+}
+
+PM_percentile_table <- function(PM, criterion1, criterion2){
+  
+  if (is.null(criterion2)) {
+  cat("if")
+  PM %>% 
+  group_by_(criterion1) %>%
+  summarise(`1%`=quantile(Daily.Mean.PM2.5.Concentration, probs=0.01),
+            `10%`=quantile(Daily.Mean.PM2.5.Concentration, probs=0.1),
+            `90%`=quantile(Daily.Mean.PM2.5.Concentration, probs=0.9),
+            `99%`=quantile(Daily.Mean.PM2.5.Concentration, probs=0.99),
+            `max`=quantile(Daily.Mean.PM2.5.Concentration, probs=1),
+            avg = mean(Daily.Mean.PM2.5.Concentration),
+            range = max(Daily.Mean.PM2.5.Concentration)-min(Daily.Mean.PM2.5.Concentration)) -> PM_percentile
+
+} else {
+  cat("else")
+  PM %>% 
+  group_by_(criterion1, criterion2) %>%
+  summarise(`1%`=quantile(Daily.Mean.PM2.5.Concentration, probs=0.01),
+            `10%`=quantile(Daily.Mean.PM2.5.Concentration, probs=0.1),
+            `90%`=quantile(Daily.Mean.PM2.5.Concentration, probs=0.9),
+            `99%`=quantile(Daily.Mean.PM2.5.Concentration, probs=0.99),
+            `max`=quantile(Daily.Mean.PM2.5.Concentration, probs=1),
+            avg = mean(Daily.Mean.PM2.5.Concentration),
+            range = max (Daily.Mean.PM2.5.Concentration)-min(Daily.Mean.PM2.5.Concentration)) -> PM_percentile
+}
+  return(PM_percentile)
+}
+
+# Create the Percentile variable for easier plotting
+ozone_percentile_gathered <- function(ozone){
+  ozone %>%
+  
+  # Remove variables not used in plotting
+  dplyr::select(-max, -avg, -range) %>%
+  
+  # Create a new variable Percentile
+  gather(`1%`, `10%`, `90%`, `99%`, key = "percentile", value = "Daily.Max.8.hour.Ozone.Concentration") -> ozone_percent_gathered
+ return(ozone_percent_gathered)
+}
+
+PM_percentile_gathered <- function(PM){
+  
+  PM %>%
+    
+  # Remove variables not used in plotting
+  dplyr::select(-max, -avg, -range) %>%
+    
+  # Create a new variable Percentile  
+  gather(`1%`, `10%`, `90%`, `99%`, key = "percentile", value = "Daily.Mean.PM2.5.Concentration") -> PM_percent_gathered
+ return(PM_percent_gathered)
+  
+}
+
+# Time series
+
+# figure 1.3.1
+Annually_Averaged_Ozone <- function(ozone){
+  ggplot(ozone, aes(x = Year, y = Daily.Max.8.hour.Ozone.Concentration)) + 
+  geom_line(aes(color = COUNTY)) +
+  geom_smooth() +
+  labs(y = "Ozone Concentration", title = "Annually Averaged Ozone Concentration")
+  ggsave("1.3.1_Annualy_Averaged_Ozone.png", path = "./Graph_Output")
+}
+
+# figure 1.3.2
+Annually_Averaged_PM <- function(PM){
+  ggplot(PM, aes(x = Year, y = Daily.Mean.PM2.5.Concentration)) + 
+  geom_line(aes(color = COUNTY)) +
+  geom_smooth() +
+  labs(y = "PM 2.5 Concentration", title = "Annually Averaged PM 2.5 Concentration")
+  ggsave("1.3.2_Annualy_Averaged_PM.png", path = "./Graph_Output")
+}
+
+# Highest 4th by site (figure 1.3.3)
+Fourth_Highest_Ozone_Site <- function(ozone){
+  ggplot(ozone, aes(x = Year, y = Daily.Max.8.hour.Ozone.Concentration)) +
+  geom_line(aes(color = Site.Name)) +
+  labs(y = "Ozone Concentration", title = "The Fourth Highest Ozone Concentration By Site") +
+  geom_smooth() +
+  geom_hline(yintercept=0.07, linetype="dashed", color = "red", size=0.3) +
+  theme(legend.position="none")
+  ggsave("1.3.3_Fourth_Highest_Ozone_By_Sites.png", path = "./Graph_Output")
+}
+
+# Highest 4th across all sites (figure 1.3.4)
+Fourth_Highest_Ozone_All <- function(ozone){
+  ggplot(ozone4th_allsites, aes(x = Year, y = Daily.Max.8.hour.Ozone.Concentration)) +
+  geom_line() +
+  labs(y = "Ozone Concentration", title = "The Fourth Highest Ozone Concentration") +
+  geom_smooth() +
+  geom_hline(yintercept=0.07, linetype="dashed", color = "red", size=0.3)
+  ggsave("1.3.4_Fourth_Highest_Ozone_All_Sites.png", path = "./Graph_Output")
+}
+
+# Percentile (figure 1.3.5)
+Percentile_ozone <- function(ozone){
+  ggplot(ozone, aes(x = Year, y = Daily.Max.8.hour.Ozone.Concentration)) +
+  geom_line(aes(color = percentile)) +
+  labs(y = "Ozone Concentration", title = "Ozone Concentrations of Different Percentiles") +
+  geom_hline(yintercept=0.07, linetype="dashed", color = "red", size=0.3)
+  ggsave("1.3.5_Percentile_Ozone.png", path = "./Graph_Output")
+}
+
+# figure 1.3.6
+Percentile_PM <- function(PM){
+  ggplot(PM, aes(x = Year, y = Daily.Mean.PM2.5.Concentration)) +
+  geom_line(aes(color = percentile)) +
+  labs(y = "PM Concentration", title = "PM Concentrations of Different Percentiles") +
+  geom_hline(yintercept=35, linetype="dashed", color = "red", size=0.3)
+  ggsave("1.3.6_Percentile_PM.png", path = "./Graph_Output")
+}
+
+# figure 1.4.1
+Seasonality_PM <- function(PM){
+  ggplot(PM, aes(x = Month, y = Daily.Mean.PM2.5.Concentration)) + 
+  geom_line() +
+  scale_x_continuous(breaks = seq(1, 12, by = 1)) +
+  labs(y = "Mean PM 2.5 Concentration", title = "Monthly Averaged PM 2.5 Concentration")
+  ggsave("1.4.1_Seasonality_PM.png", path = "./Graph_Output")
+}
+
+# figure 1.4.2
+Seasonality_PM_AllYears <- function(PM){
+  ggplot(data = PM) + 
+  geom_line(mapping = aes(x = Month, y = Daily.Mean.PM2.5.Concentration)) + 
+  facet_wrap(~ Year, nrow = 5) +
+  scale_x_continuous(breaks = seq(1, 12, by = 2)) +
+  labs(y = "Mean PM 2.5 Concentration", title = "Monthly Averaged PM 2.5 Concentration Per Year")
+  ggsave("1.4.2_Seasonality_PM_All_Years.png", path = "./Graph_Output")
+}
+
+# figure 1.4.3
+Seasonality_ozone <- function(ozone){
+  ggplot(ozone, aes(x = Month, y = Daily.Max.8.hour.Ozone.Concentration)) + 
+  geom_line() +
+  scale_x_continuous(breaks = seq(1, 12, by = 1)) +
+  labs(y = "Mean Ozone Concentration", title = "Monthly Averaged Ozone Concentration")
+  ggsave("1.4.3_Seasonality_Ozone.png", path = "./Graph_Output")
+}
+
+# figure 1.4.4
+Seasonality_ozone_AllYears <- function(ozone){
+  ggplot(ozone) + 
+  geom_line(mapping = aes(x = Month, y = Daily.Max.8.hour.Ozone.Concentration)) + 
+  facet_wrap(~ Year, nrow = 5) +
+  scale_x_continuous(breaks = seq(1, 12, by = 2)) +
+  labs(y = "Mean Ozone Concentration", title = "Monthly Averaged Ozone Concentration Per Year")
+  ggsave("1.4.4_Seasonality_Ozone_All_Years.png", path = "./Graph_Output")
+}
+
+# figure 1.5.1
+Linear_Relationship <- function(both){
+  ggplot(data = both, mapping = aes(y = Daily.Mean.PM2.5.Concentration, x = Daily.Max.8.hour.Ozone.Concentration)) + 
+  geom_point(mapping = aes(color = Year, shape = COUNTY)) +
+  geom_smooth(color = "red") +
+  labs(title = "Relationship between Ozone and PM 2.5 Concentrations", y = "Daily Mean PM 2.5 Concentration", x = "Daily Max 8-Hour Ozone Concentration" )
+  ggsave("1.5.1_Linear_Relationship_Between_Ozone_and_PM.png", path = "./Graph_Output")
+}
+
+# figure 1.5.2
+Exceedance_Relationship <- function(exceedanceboth){
+ggplot(data = exceedanceboth, mapping = aes(y = Daily.Mean.PM2.5.Concentration, x = Daily.Max.8.hour.Ozone.Concentration)) + 
+  geom_point() +
+  geom_smooth(color = "red") +
+  labs(title = "Exceedance Days Pollutants Concentrations", y = "Daily Mean PM 2.5 Concentration", x = "Daily Max 8-Hour Ozone Concentration" )
+  ggsave("1.5.2_Relationship_Between_Ozone_and_PM_Exceedances.png", path = "./Graph_Output")
+}
+```
+
+## Part I. 2. Functions for EDA (3) Cluster Analysis
+```{r}
+# This function adapts the data to a desired time frame, such as May 1 - Sep 30 of 2000-2014 (which we will use)
+# Define them globally below:
+
+## We will set these values to defaults as well
+
+relevant_dates <- function(file, first_month = 5, last_month = 9, first_year = 2000, last_year = 2014){
+  
+  file %>%
+    mutate(doy = as.Date(file$Date, format = "%m/%d/%Y")) %>%
+    subset(month(doy) >= first_month & month(doy) <= last_month) %>%
+    subset(year(doy) >= first_year & year(doy) <= last_year) -> relevant_dates_file
+  
+  return(relevant_dates_file)
+  
+}
+
+
+# The following function we will implement for convenience. It will sort clusters according to frequency (descending).
+## This is because Professor Hassanzadeh did the same with our given clusters.
+org_by_freq <- function(index_col){
+  
+  freq_table <- table(index_col)/length(index_col)
+  freq_frame <- as.data.frame(sort((freq_table), decreasing = TRUE))
+  
+  freq_frame %>%
+    transmute(new_num = 1:length(unique(index_col)), old_num = as.character(freq_frame$index_col)) ->> idx_frame
+  
+  result <- as.data.frame(matrix(as.character(index_col), length(index_col), 1))
+  
+  result$old_num <- result$V1
+  
+  final <- left_join(result, idx_frame)
+  
+  final %>%
+    transmute(idx = new_num) -> final
+  
+  return(as.numeric(final$idx))
+}
+
+
+
+# This function turns the U2 and the V2 data into one final dataset that will be used for any clustering. 
+
+prepare_for_clustering <- function(U2 = U2_data, V2 = V2_data){
+  
+  u2 <- t(U2)
+  v2 <- t(V2)
+  data_u2_v2 <- cbind(u2,v2)
+  
+  return(data_u2_v2)
+  
+}
+
+
+
+# The next function performs k-means clustering and returns a column of indexes (ordered by descending frequency)
+## The nstart parameter tells the computer how many times to try k-means and selects the best try among them
+k_means_cluster <- function(dataset, k, reps) {
+  
+  set.seed(22)
+  kclust <<- kmeans(dataset, centers = k, nstart = reps)
+  return(org_by_freq(kclust$cluster))
+  
+}
+
+# The next function performs partitioning around medoids clustering and returns a column of indexes (ordered by descending frequency)
+
+pam_cluster <- function(dataset, k, metric) {
+  
+  set.seed(22)
+  pamclust <- pam(dataset = dataset, k = k, metric = metric)
+  return(org_by_freq(pamclust$clustering))
+  
+}
+
+#Hierarchical clustering
+
+# The following function performs hierarchical clustering of the data with the desired distance metric, method,
+# and cuts the dendrogram at the desired number of clusters (num_clusts). It returns a column of indexes.
+# The "dendrogram" Boolean lets the user decide whether or not to plot the resulting clustering dendrogram.
+hierarchical_cluster <- function(dataset, dist_metric = "manhattan", kind = "complete", num_clusts = 10, dendrogram = TRUE){
+  
+  hc <- hclust(dist(dataset, method = dist_metric), method = kind)
+  
+  sub_grp <- cutree(hc, k = num_clusts)
+  
+  if(dendrogram == TRUE){ # Generate a dendrogram cut at num_clusts = number of clusters desired
+    
+    # Open a png file
+    png("./Graph_Output/1.6.2_Manhattan_Clustering_Dendrogram.png")#, path = "./Graph_Output")
+    
+    # 2. Create a plot
+    plot(hc, cex = 0.6)
+    rect.hclust(hc, k = num_clusts, border = 2:5)
+
+    # Close the png file
+    while (!is.null(dev.list()))  dev.off() 
+    
+  }
+  
+  return(org_by_freq(sub_grp))
+}
+ 
+# This function performs a PCA dimensionality reduction to a desired threshold of variance, and it returns the dimensionally-reduced data set.
+pca <- function(dataset, cen = FALSE, sca = FALSE, threshold) {
+  
+  data.pca <<- prcomp(dataset, center = cen, scale = sca)
+  
+  for(num_pc in 1:length(data.pca$sdev)) {
+    
+    if( (sum(data.pca$sdev[1:num_pc]^2))/(sum(data.pca$sdev^2)) >= threshold) {
+      
+      break
+    }
+    
+  }
+  
+  pca.reduced.data <<- data.pca$x[,1:num_pc]
+  
+  
+  return(pca.reduced.data)
+  
+}
+
+
+# This function produces the desired matrix that will be given to the MATLAB file to visualize the wind patterns. It is meant to be used after the preceding functions have already been run.
+
+createC <- function() {
+  
+  nc <- ncol(pca.reduced.data)
+  
+  from_pca <- data.pca$rotation[,1:nc]
+  
+  from_clus <- t(kclust$centers)
+  
+  reorder_list <- as.integer(idx_frame$old_num)
+  
+  new_from_clus <- from_clus[,c(reorder_list)]
+  
+  C <- from_pca %*% new_from_clus
+  
+  return(C)
+  
+}
+
+# The following function obtains the averages by cluster for every variable here. The user provides the clustering column.
+avgs_by_clust <- function(small_dataset, ozone_data, PM_data, clust_ind_col){
+  
+  #Attach cluster number to pollutant data
+  small_dataset %>%
+    transmute(doy = as.Date(DATE), clusnum = clust_ind_col) -> Date_clus
+ 
+  ozone_data %>%
+    left_join(Date_clus) -> ozone_attached
+  
+  
+  ozone_attached %>%
+    group_by(doy) %>%
+    dplyr::select(date = doy, Daily.Max.8.hour.Ozone.Concentration, clusnum) %>%
+    summarise(med.ozone.day = median(Daily.Max.8.hour.Ozone.Concentration), cluster = mean(clusnum)) %>%
+    group_by(cluster) %>%
+    summarise(Count_ozone = n(), avg_ozone = mean(med.ozone.day, na.rm = TRUE)) -> ozone_avgs # calculate pollutant averages by cluster
+  
+  # Same procedure
+  PM_data %>%
+    left_join(Date_clus) -> PM_attached
+  
+  PM_attached %>%
+    group_by(doy) %>%
+    dplyr::select(date = doy, Daily.Mean.PM2.5.Concentration, clusnum) %>%
+    summarise(med.PM.day = median(Daily.Mean.PM2.5.Concentration), cluster = mean(clusnum)) %>%
+    group_by(cluster) %>%
+    summarise(Count_PM = n(), avg_PM = mean(med.PM.day, na.rm = TRUE)) -> PM_avgs # calculate pollutant averages by cluster
+
+  
+  NOAA %>%
+    transmute(doy = as.Date(DATE), precipitate = precip, temp = temp_avg_f,
+              cluster = clust_ind_col) %>%
+    dplyr::select(doy, precipitate, temp, cluster) %>%
+    group_by(cluster) %>%
+    summarise(avg_precip = mean(precipitate, na.rm = TRUE), avg_temp = mean(temp, na.rm = TRUE)) -> meteorology_avgs # calculate meteorological averages by cluster
+
+  ozone_avgs %>%
+    left_join(PM_avgs) -> pre_final
+  
+  pre_final %>%
+    left_join(meteorology_avgs) -> final
+    
+  
+  return(final)
+}
+
+
+# Figure 1.2.2
+Given_avgs_pollution <- function(file){
+ggplot(file, aes(fill = avg_PM, y = avg_ozone, x = cluster)) +
+  geom_bar(position="dodge", stat="identity") +
+  ggtitle("Given Clusters: Pollution Average: 2000-2014") +
+  xlab("Wind Cluster Index") +
+  ylab("Average Ozone level") +
+  guides(fill=guide_legend(title="Average PM 2.5 Level")) +
+  scale_x_discrete(name ="Wind Cluster Index", limits=as.character(1:nrow(file)))
+  ggsave("1.2.2_Given_Clusters_Pollution_Averages.png", path = "./Graph_Output")
+}
+
+
+# This function allows for the plots of consensus clustering to be saved in the "CCluster" folder within "Graph_Output" in an organized fashion.
+consensus_cluster <- function(dataset, k = 12, num_rep = 100, pItems = 0.8, pFeatures = 1, dist_metric, method, set.seed = 22) {
+  
+  the_title <- paste0("./Graph_Output/ConsensusClustering/", method, "_", substring(dist_metric,1,2), "_", num_rep, "_pc90")
+  
+  consensus_cluster_data <- ConsensusClusterPlus::ConsensusClusterPlus(t(dataset), maxK = k,reps = num_rep, pItem = pItems, pFeature = pFeatures, distance = dist_metric, clusterAlg = method, seed = set.seed, plot = "png", title = the_title)
+  
+  icl_data <- ConsensusClusterPlus::calcICL(consensus_cluster_data, title = paste0(the_title, "/icl_", method, "_", substring(dist_metric,1,2), "_", num_rep, "_pc90"), plot = "png", writeTable = FALSE)
+
+}
+
+
+
+# Figure 1.6.11
+New_avgs_pollution <- function(file){
+ggplot(file, aes(fill = avg_PM, y = avg_ozone, x = cluster)) +
+  geom_bar(position="dodge", stat="identity") +
+  ggtitle("K-means Clusters (New): Pollution Average: 2000-2014") +
+  xlab("Wind Cluster Index") +
+  ylab("Average Ozone level") +
+  guides(fill=guide_legend(title="Average PM 2.5 Level")) +
+  scale_x_discrete(name ="Wind Cluster Index", limits=as.character(1:nrow(file)))
+  ggsave("1.6.11_New_Clusters_Pollution_Averages.png", path = "./Graph_Output")
+}
+
+```
+## Part I. 2. Functions for EDA (4) Further Cluster Analysis
+```{r}
+### ------------------------------------ Functions for Wrangling ------------------------------
+# wrangling ozone data for cluster analysis
+cluster_ozone <- function(NOAA_km_ozone){
+NOAA_km_ozone %>%
+  group_by(Year,valid_cluster_number) %>%
+  summarise(Mean_Ozone_Concentration = mean(med.pollutant)) -> average_ozone_cluster
+return(average_ozone_cluster)
+}
+
+
+# wrangling PM data for cluster analysis
+cluster_PM <- function(NOAA_km_PM){
+NOAA_km_PM %>%
+  group_by(Year,valid_cluster_number) %>%
+  summarise(Mean_PM_Concentration = mean(med.pollutant)) -> average_PM_cluster
+return(average_PM_cluster)
+}  
+
+# wrangling ozone data for weekday analysis
+
+Weekday_Ozone <- function(NOAA_km_ozone){
+NOAA_km_ozone %>% 
+  unite(Date, Month, Day, Year, sep = "/")  -> NOAA_km_ozone_united
+  
+date <- as.Date(NOAA_km_ozone_united$Date, format = "%m/%d/%y")
+NOAA_km_ozone_united$WeekDay <- weekdays(date)
+
+NOAA_km_ozone_united %>%
+  group_by(WeekDay) %>%
+  summarise(Mean_Ozone_Concentration = mean(med.pollutant)) -> weekday_average_ozone
+
+return(weekday_average_ozone)
+}
+
+
+# wrangling PM data for weekday analysis
+Weekday_PM <- function(NOAA_km_PM){
+NOAA_km_PM %>% 
+  unite(Date, Month, Day, Year, sep = "/")  -> NOAA_km_PM_united
+  
+date <- as.Date(NOAA_km_PM_united$Date, format = "%m/%d/%y")
+NOAA_km_PM_united$WeekDay <- weekdays(date)
+
+NOAA_km_PM_united %>%
+  group_by(WeekDay) %>%
+  summarise(Mean_PM_Concentration = mean(med.pollutant)) -> weekday_average_PM
+
+return(weekday_average_PM)
+}
+ 
+# compute cluster frequency
+Cluster_Frequency <- function(NOAA_km){
+NOAA_km %>%
+  group_by(Year) %>%          
+  count(valid_cluster_number) %>%
+  mutate(prop = prop.table(n)) -> cluster_prop
+return(cluster_prop)
+}
+
+
+### ------------------------------------ Functions for Graphs ------------------------------
+# Plot Annually Averaged Ozone Concentration by Cluster
+Cluster_Ozone <- function(average_ozone_cluster){
+  ggplot(average_ozone_cluster, aes(x = Year, y = Mean_Ozone_Concentration)) + 
+  geom_line(aes(color = as.character(valid_cluster_number))) +
+  labs(y = "Ozone Concentration", title = "Annually Averaged Ozone Concentration by Cluster", color="Cluster Number" )
+  ggsave("Annualy_Averaged_Ozone_By_Cluster.png", path = "./Graph_Output")
+}
+
+# Plot Annually Averaged PM Concentration by Cluster
+Cluster_PM <- function(average_PM_cluster){
+  ggplot(average_PM_cluster, aes(x = Year, y = Mean_PM_Concentration)) + 
+  geom_line(aes(color = as.character(valid_cluster_number))) +
+  labs(y = "PM Concentration", title = "Annually Averaged PM Concentration by Cluster", color="Cluster Number")
+  ggsave("Annualy_Averaged_PM_By_Cluster.png", path = "./Graph_Output")
+}  
+
+# Plot Average Ozone by Weekday
+Weekday_Ozone_Plot <- function(weekday_average_ozone){
+ggplot(weekday_average_ozone, aes(x=reorder(WeekDay, -Mean_Ozone_Concentration), y=Mean_Ozone_Concentration)) +
+  geom_bar(stat="identity") +
+  labs(x = "Weekday", y = "Ozone Concentration", title = "Average Ozone by Weekday")
+  ggsave("Average_Ozone_By_Weekday.png", path = "./Graph_Output")
+}
+
+# Plot Average PM by Weekday
+Weekday_PM_Plot <- function(weekday_average_PM){ 
+ggplot(weekday_average_PM, aes(x=reorder(WeekDay, -Mean_PM_Concentration), y=Mean_PM_Concentration)) +
+  geom_bar(stat="identity") +
+  labs(x = "Weekday", y = "PM Concentration", title = "Average PM by Weekday")
+  ggsave("Average_PM_By_Weekday.png", path = "./Graph_Output")
+}
+
+# Plot Frequency of Each Cluster by Year
+
+Cluster_Frequency_Plot <- function(cluster_prop) {
+cluster_prop %>%
+  ggplot(aes(x = Year, y = prop)) + 
+  geom_line(aes(color = as.character(valid_cluster_number))) +
+  labs(y = "Proportion", title = "Frequency of Each Cluster by Year", color = "Cluster Number")
+  ggsave("Cluster_Frequency.png", path = "./Graph_Output")
+}
+
+
+```
+
+
+
+## Part I. 3. Functions for Modeling (1) Random Forest
+```{r}
+# 1. -------------------------- Functions related to Meteorology Dataset ------------------------------------
+# Function to attach validated cluster indices to Meteorology_PM_combined, to Meteorology_ozone_cmobine
+combine_Meteorology_cluster <- function(Meteorology_pollutant_combined, NOAA_cluster) {
+  NOAA_cluster %>% 
+  left_join(Meteorology_pollutant_combined) %>%
+  mutate(valid_cluster_number = as.factor(valid_cluster_number)) %>%
+  dplyr::select(Year, Month, Day, valid_cluster_number, PRCP, TMAX, TMIN, med.pollutant) %>%
+  na.omit() -> Meteorology_cluster
+  return(Meteorology_cluster)
+}
+
+# Function to make a random forest model that regresses polutant value on mateorology variables
+rf_pollutant_vs_meteo <- function(dat, poll_type, num_tree, node_min_size) {
+  dat$response <- as.data.frame(dat[,"med.pollutant"])$med.pollutant
+  dat <- dat[dat$response > 0, ]
+  folds <- sample(c(1,2,3,4,5), nrow(dat), replace = TRUE)
+  dat$folds <- folds
+
+  ### Split training_dat (folds 1-4) and testing_dat.
+  training_dat <- subset(dat, folds %in% c(1:4))
+  testing_dat <- subset(dat, folds == 5)
+  # dim(testing_dat) + dim(training_dat)
+  # dim(dat)
+
+  ### Train Random Forest
+  set.seed(220)
+  require(randomForest)
+  pt <- proc.time()
+  forest = randomForest(
+    response ~ PRCP + TMIN + TMAX + valid_cluster_number,
+    data = training_dat,
+    ntree = num_tree,
+    nodesize = node_min_size)
+  pt2 <- proc.time() - pt
+  cat("\n running time: ", pt2)
+  ## Validation
+  forest_pred <- predict(object = forest, newdata = testing_dat)
+  MSE_rf <- mse(actual = testing_dat$response, predicted = forest_pred)
+  MAPE_rf <- mean(abs(testing_dat$response - forest_pred)/testing_dat$response)
+  testing_mean_pollutant <- mean(testing_dat$response)
+  training_mean_pollutant <- mean(training_dat$response)
+  MSE_naive <- mse(actual = testing_dat$response, predicted = training_mean_pollutant)
+  MAPE_naive <- mean(abs(testing_dat$response - training_mean_pollutant)/training_mean_pollutant)
+  Model_VS_Naive_Improv <- (MSE_naive - MSE_rf) / MSE_naive
+  range_pollutant <- range(dat$response)
+  cat(" \n", poll_type, "MSE is:", MSE_rf)
+  cat("\n", poll_type, "MSE_naive is:", MSE_naive)
+  cat("\n", poll_type, "Model_VS_Naive_Improv is:", Model_VS_Naive_Improv)
+  cat("\n", poll_type, "MAPE is:", MAPE_rf)
+  cat("\n", poll_type, "MAPE_naive is:", MAPE_naive)
+  cat("\n", poll_type, "range from data is:", range_pollutant)
+  cat("\n", poll_type, "average from data is:", testing_mean_pollutant)
+  result_list <- list("forest" = forest, "forest_pred" = forest_pred, "testing_dat" = testing_dat, "MSE_rf" = MSE_rf, "MAPE_rf" = MAPE_rf, "range_pollutant" = range_pollutant, "testing_mean_pollutant" = testing_mean_pollutant, "testing_true_pollutant" = testing_dat$response)
+  return(result_list)
+}
+
+
+
+
+
+
+#Function to draw plots to compare the predicted PM values for the test set to the true values from the test set
+# Function to draw PM points
+draw_rf_PM_plot_point <- function(x_var, x_var_label, predicted_PM, true_PM) {
+  
+rf_response_comparison <- data.frame(x_var = x_var,
+                                     predicted_PM = predicted_PM,
+                                     true_PM = true_PM,
+                                     average_predicted_PM = mean(predicted_PM),
+                                     average_true_PM = mean(true_PM))
+## Just the points
+rf_response_comparison_long <- melt(rf_response_comparison, id = "x_var")
+plot_point <- ggplot(data = rf_response_comparison_long, 
+                aes(x = x_var, y = value, colour = variable)) +
+                geom_point() +
+                # stat_summary(fun.y="mean", geom="point", shape = 17, size = 4) +
+                labs(y = "PM (ug/m3 LC)", x = paste(x_var_label, "from Test Data"), title = "Predicted PM by RF v.s. True PM")
+# + ggsave("./RF_Comparision_Plots/PM_Comparisons/rf_PM_TAVG_point.png")
+
+return(plot_point)
+}
+
+# Function to draw PM Averages
+draw_rf_PM_plot_average <- function(x_var, x_var_label, predicted_PM, true_PM) {
+  
+rf_response_comparison <- data.frame(x_var = x_var,
+                                     predicted_PM = predicted_PM,
+                                     true_PM = true_PM,
+                                     average_predicted_PM = mean(predicted_PM),
+                                     average_true_PM = mean(true_PM))
+## Just the averages
+rf_response_comparison_long <- melt(rf_response_comparison, id = "x_var")
+plot_average <- ggplot(data = rf_response_comparison_long, 
+                  aes(x = x_var, y = value, colour = variable)) +
+                  stat_summary(fun.y="mean", geom="point", shape = 17, size = 4) +
+                  geom_smooth() + 
+                  labs(y = "Average PM (ug/m3 LC)", x = paste(x_var_label, "from Test Data"), title = "Predicted PM by RF v.s. True PM") 
+# + ggsave("./RF_Comparision_Plots/PM_Comparisons/rf_PM_TAVG_mean.png")
+
+return(plot_average)
+}
+
+
+# Function to draw ozone points
+draw_rf_ozone_plot_point <- function(x_var, x_var_label, predicted_ozone, true_ozone) {
+  
+rf_response_comparison <- data.frame(x_var = x_var,
+                                     predicted_ozone = predicted_ozone,
+                                     true_ozone = true_ozone,
+                                     average_predicted_ozone = mean(predicted_ozone),
+                                     average_true_ozone = mean(true_ozone))
+## Just the points
+rf_response_comparison_long <- melt(rf_response_comparison, id = "x_var")
+plot_point <- ggplot(data = rf_response_comparison_long, 
+                aes(x = x_var, y = value, colour = variable)) +
+                geom_point() +
+                # stat_summary(fun.y="mean", geom="point", shape = 17, size = 4) +
+                labs(y = "Ozone (parts per million)", x = paste(x_var_label, "from Test Data"), title = "Predicted ozone by RF v.s. True ozone")
+# + ggsave("./RF_Comparision_Plots/Ozone_Comparisons/rf_ozone_TAVG_point.png")
+
+return(plot_point)
+}
+
+# Function to draw ozone Averages
+draw_rf_ozone_plot_average <- function(x_var, x_var_label, predicted_ozone, true_ozone) {
+  
+rf_response_comparison <- data.frame(x_var = x_var,
+                                     predicted_ozone = predicted_ozone,
+                                     true_ozone = true_ozone,
+                                     average_predicted_ozone = mean(predicted_ozone),
+                                     average_true_ozone = mean(true_ozone))
+## Just the averages
+rf_response_comparison_long <- melt(rf_response_comparison, id = "x_var")
+plot_average <- ggplot(data = rf_response_comparison_long, 
+                  aes(x = x_var, y = value, colour = variable)) +
+                  stat_summary(fun.y="mean", geom="point", shape = 17, size = 4) +
+                  geom_smooth() + 
+                  labs(y = "Average Ozone (parts per million)", x = paste(x_var_label, "from Test Data"), title = "Predicted Ozone by RF v.s. True Ozone") 
+# + ggsave("./RF_Comparision_Plots/Ozone_Comparisons/rf_ozone_TAVG_mean.png")
+
+return(plot_average)
+}
+
+
+# 2. -------------------------- Functions related to NOAA Dataset ------------------------------------
+# Function to separate the DATE from datasets that are similar to NOAA, and attach the validated cluster indices to it.
+separate_add_cluster_NOAA <- function(NOAA_dat, valid_cluster_number) {
+  ## Separate NOAA's date column
+  NOAA_dat %>%
+   separate(DATE, into = c("Year", "Month", "Day"), convert = TRUE) -> NOAA_dat_separated
+  
+  ## Add cluster indices to NOAA_dat_separated
+  NOAA_dat_separated$valid_cluster_number <- valid_cluster_number
+  NOAA_cluster_dat <- NOAA_dat_separated
+  return(NOAA_cluster_dat)
+}
+
+# Mao changed this combine_NOAA_cluster_ozone function on April 14, 2019 !!!!
+# Function that puts ozone values into NOAA_cluster
+combine_NOAA_cluster_ozone <- function(NOAA_cluster_dat, ozone_all_separated_dat) {
+  ozone_all_separated_dat %>%
+    inner_join(NOAA_cluster_dat) %>%
+      group_by(Month, Day, Year) %>%
+        summarise(med.pollutant = median(Daily.Max.8.hour.Ozone.Concentration), 
+                  valid_cluster_number = factor(mean(valid_cluster_number)), 
+                  prp = mean(precip), tmp = mean(temp_avg_f)) -> NOAA_cluster_ozone_dat 
+          # na.omit() -> NOAA_cluster_ozone_dat 
+  return(NOAA_cluster_ozone_dat)
+} 
+
+# Mao changed this combine_NOAA_cluster_PM function on April 14, 2019 !!!!
+# Function that puts PM values into NOAA_cluster
+combine_NOAA_cluster_PM <- function(NOAA_cluster_dat, PM_all_separated_dat) {
+  PM_all_separated_dat %>%
+    inner_join(NOAA_cluster_dat) %>%
+      group_by(Month, Day, Year) %>%
+        summarise(med.pollutant = median(Daily.Mean.PM2.5.Concentration), 
+                  valid_cluster_number = factor(mean(valid_cluster_number)), 
+                  prp = mean(precip), tmp = mean(temp_avg_f)) -> NOAA_cluster_PM_dat 
+          # na.omit() -> NOAA_cluster_PM_dat 
+  return(NOAA_cluster_PM_dat)
+} 
+
+# Function to make a random forest model that regresses pollutant value on variables from NOAA_cluster_pollutant
+rf_pollutant_vs_NOAA <- function(dat, poll_type, num_tree, node_min_size) {
+  dat$response <- dat$med.pollutant
+  dat <- dat[dat$response > 0, ]
+  folds <- sample(c(1,2,3,4,5), nrow(dat), replace = TRUE)
+  dat$folds <- folds
+  
+  ### Split training_dat (folds 1-4) and testing_dat.
+  training_dat <- subset(dat, folds %in% c(1:4))
+  testing_dat <- subset(dat, folds == 5)
+  # dim(testing_dat) + dim(training_dat)
+  # dim(dat)
+  
+  ### Train Random Forest
+  set.seed(220)
+  require(randomForest)
+  pt <- proc.time()
+  forest = randomForest(
+    response ~ prp+tmp+valid_cluster_number, 
+    data = training_dat, 
+    ntree = num_tree,
+    nodesize = node_min_size)
+  pt2 <- proc.time() - pt
+  cat("\n running time: ", pt2)
+  ## Validation
+  forest_pred <- predict(object = forest, newdata = testing_dat)
+  MSE_rf <- mse(actual = testing_dat$response, predicted = forest_pred)
+  MAPE_rf <- mean(abs(testing_dat$response - forest_pred)/testing_dat$response)
+  testing_mean_pollutant <- mean(testing_dat$response)
+  training_mean_pollutant <- mean(training_dat$response)
+  MSE_naive <- mse(actual = testing_dat$response, predicted = training_mean_pollutant)
+  MAPE_naive <- mean(abs(testing_dat$response - training_mean_pollutant)/training_mean_pollutant)
+  Model_VS_Naive_Improv <- (MSE_naive - MSE_rf) / MSE_naive
+  range_pollutant <- range(dat$response)
+  cat(" \n", poll_type, "MSE is:", MSE_rf)
+  cat("\n", poll_type, "MSE_naive is:", MSE_naive)
+  cat("\n", poll_type, "Model_VS_Naive_Improv is:", Model_VS_Naive_Improv)
+  MAPE_naive <- mean(abs(testing_dat$response - training_mean_pollutant)/training_mean_pollutant)
+  range_pollutant <- range(dat$response)
+  cat("\n", poll_type, "MAPE is:", MAPE_rf)
+  cat("\n", poll_type, "MAPE_naive is:", MAPE_naive)
+  cat("\n", poll_type, "range from data is:", range_pollutant)
+  cat("\n", poll_type, "average from data is:", testing_mean_pollutant)
+  result_list <- list("forest" = forest, "forest_pred" = forest_pred, "testing_dat" = testing_dat, "MSE_rf" = MSE_rf, "MAPE_rf" = MAPE_rf, "range_pollutant" = range_pollutant, "testing_mean_pollutant" = testing_mean_pollutant, "testing_true_pollutant" = testing_dat$response)
+  return(result_list)
+}
+
+# Function to draw the plot "Predicted Pollutant (by RF) vs True Pollutant"
+draw_rf_pred_true <- function(true, predicted, poll_type, unit, datasource, w_or_wo) {
+  # Open a jpeg file
+  jpeg(paste0("./Graph_Output/RF_Comparison_Plots/Overall_Comparisons/", poll_type, " Predicted v.s. True, by RF ", w_or_wo, " clusters, ", "from ", datasource, ".jpeg")) 
+  # Draw the plot
+  plot(x = true, y = predicted, 
+      main = paste0(poll_type, " Predicted v.s. True, by RF ", w_or_wo, " clusters, ", "from ", datasource),
+      xlab = paste0(poll_type, " (", unit, ") ", "True"),
+      ylab = paste0(poll_type, " (", unit, ") ", "Predicted"))
+  abline(0, 1)
+  text(mean(true), min(predicted), "line: x=y", srt=0.2,pos=3, col = "red")
+  # Close the jpeg file
+  dev.off() 
+}
+
+
+```
+
+## Part I. 3. Functions for Modeling (2) VAR
+```{r}
+
+## function to produce the VAR prediction plot, and the prediction MAPE for ozone
+var_predict_ozone <- function(var_data_ozone, train_portion, var_lag_max, var_ci) {
+  ### Wrangling for VAR
+  # drop NA
+  var_ozone_meteorology_combined <- na.omit(var_data_ozone)
+  # order by date
+  var_ozone_meteorology_combined$date <- as.Date(with(var_ozone_meteorology_combined,
+                                                          paste(Year, Month, Day,sep="-")), "%Y-%m-%d")
+  var_ozone_meteorology_combined <- var_ozone_meteorology_combined[order(var_ozone_meteorology_combined$date),]
+  var_ozone_meteorology_combined %>%
+    group_by(Year, Month) %>%
+    summarise(OzoneLevel = mean(med.pollutant),
+              Precipitation = mean(PRCP),
+              Max_Temperature = mean(TMAX),
+              c2_count = sum(valid_cluster_number == 2 ),
+              c4_count = sum(valid_cluster_number == 4 )) -> new_var_ozone_meteorology_combined
+  # new_var_ozone_meteorology_combined <- new_var_ozone_meteorology_combined[, -c(1,2)]
+    new_var_ozone_meteorology_combined <- subset(new_var_ozone_meteorology_combined, select = -c(Year, Month))
+  
+  ### Split training_dat and testing_dat.
+  cutoff_ozone <- round(nrow(new_var_ozone_meteorology_combined)*(train_portion))
+  training_dat_var_ozone <- new_var_ozone_meteorology_combined[1:cutoff_ozone, ]
+  test_dat_var_ozone <- new_var_ozone_meteorology_combined[(cutoff_ozone+1):nrow(new_var_ozone_meteorology_combined), ]
+  
+  ### VAR model & prediction
+  var_ozone = VAR(training_dat_var_ozone, type = "const", lag.max=var_lag_max, ic ="AIC")
+  # predict
+  fcst_ozone <- predict(var_ozone, n.ahead = nrow(test_dat_var_ozone), ci = var_ci)
+  # plot predictions
+  png(paste0("./Graph_Output/Vars_Plots/","Ozone_forecast_all.png"))
+  plot(fcst_ozone, xlab="Month", ylab="Ozone (ppm)", cex.main=1.3, cex.lab=20)
+  dev.off()
+
+  ### Validation
+  var_pred_ozone <- fcst_ozone$fcst$OzoneLevel[, 1]
+  var_actual_ozone <- test_dat_var_ozone$OzoneLevel
+  # error rate
+  MSE_var_ozone <- mean((var_pred_ozone - var_actual_ozone)^2 )
+  training_var_mean_ozone <- mean(training_dat_var_ozone$OzoneLevel)
+  MAPE_Naive_var_ozone <- mean(abs(training_var_mean_ozone - var_actual_ozone)/var_actual_ozone)
+  MAPE_var_ozone <- mean(abs(var_pred_ozone - var_actual_ozone)/var_actual_ozone)
+  VAR_VS_Naive_Ratio_ozone <- (MAPE_Naive_var_ozone - MAPE_var_ozone) / MAPE_Naive_var_ozone
+  cat("\n VAR model's MSE on ozone is:", MSE_var_ozone)
+  cat("\n VAR model's MAPE on ozone is:", MAPE_var_ozone)
+  cat("\n VAR model's naive prediction MAPE on ozone is:", MAPE_Naive_var_ozone)
+  cat("\n VAR model VS Naive model Ratio on ozone is:", VAR_VS_Naive_Ratio_ozone)
+}
+
+
+## function to produce the VAR prediction plot, and the prediction MAPE for PM
+var_predict_PM <- function(var_data_PM, train_portion, var_lag_max, var_ci) {
+  ### Wrangling for VAR
+  # drop NA
+  var_PM_meteorology_combined <- na.omit(var_data_PM)
+  # order by date
+  var_PM_meteorology_combined$date <- as.Date(with(var_PM_meteorology_combined,
+                                                          paste(Year, Month, Day,sep="-")), "%Y-%m-%d")
+  var_PM_meteorology_combined <- var_PM_meteorology_combined[order(var_PM_meteorology_combined$date),]
+  var_PM_meteorology_combined %>%
+    group_by(Year, Month) %>%
+    summarise(PMLevel = mean(med.pollutant),
+              Precipitation = mean(PRCP),
+              Max_Temperature = mean(TMAX),
+              c2_count = sum(valid_cluster_number == 2 ),
+              c4_count = sum(valid_cluster_number == 4 )) -> new_var_PM_meteorology_combined
+  # new_var_PM_meteorology_combined <- new_var_PM_meteorology_combined[, -c(1,2)]
+    new_var_PM_meteorology_combined <- subset(new_var_PM_meteorology_combined, select = -c(Year, Month))
+  
+  
+  ### Split training_dat and testing_dat.
+  cutoff_PM <- round(nrow(new_var_PM_meteorology_combined)*(train_portion))
+  training_dat_var_PM <- new_var_PM_meteorology_combined[1:cutoff_PM, ]
+  test_dat_var_PM <- new_var_PM_meteorology_combined[(cutoff_PM+1):nrow(new_var_PM_meteorology_combined), ]
+  
+  ### VAR model & prediction
+  var_PM = VAR(training_dat_var_PM, type = "const", lag.max=var_lag_max, ic ="AIC")
+  # predict
+  fcst_PM <- predict(var_PM, n.ahead = nrow(test_dat_var_PM), ci = var_ci)
+  # plot predictions
+  png(paste0("./Graph_Output/Vars_Plots/","PM_forecast_all.png"))
+  plot(fcst_PM, xlab="Month", ylab="PM (ug/m3 LC)", cex.main=1.3, cex.lab=20)
+  dev.off()
+  
+  ### Validation
+  var_pred_PM <- fcst_PM$fcst$PMLevel[, 1]
+  var_actual_PM <- test_dat_var_PM$PMLevel
+  # error rate
+  MSE_var_PM <- mean((var_pred_PM - var_actual_PM)^2 )
+  training_var_mean_PM <- mean(training_dat_var_PM$PMLevel)
+  MAPE_Naive_var_PM <- mean(abs(training_var_mean_PM - var_actual_PM)/var_actual_PM)
+  MAPE_var_PM <- mean(abs(var_pred_PM - var_actual_PM)/var_actual_PM)
+  VAR_VS_Naive_Ratio_PM <- (MAPE_Naive_var_PM - MAPE_var_PM) / MAPE_Naive_var_PM
+  cat("\n VAR model's MSE on PM is:", MSE_var_PM)
+  cat("\n VAR model's MAPE on PM is:", MAPE_var_PM)
+  cat("\n VAR model's naive prediction MAPE on PM is:", MAPE_Naive_var_PM)
+  cat("\n VAR model VS Naive model Ratio on PM is:", VAR_VS_Naive_Ratio_PM)
+}
+
+
+```
+
+
+## Part II. Data Reading & Columns Selecting
+```{r}
+# ------ Part II. 1. Read Pollutant Data
+# Note that we're reading many different datasets individually in the next two for loops. Each for loop reads each individual pollutant(either PM or ozone) dataset for each individual year as a separate dataframe.
+
+# Indicate the time frame (in year) when PM data and ozone data are avaialable as an individual dataset
+start_yr_PM <- 2000
+end_yr_PM <- 2018
+start_yr_ozone <- 1980
+end_yr_ozone <- 2018
+
+# Read PM data 
+for (i in c(start_yr_PM:end_yr_PM)) {
+  file_name <- paste("PM", i, sep = "")
+  file_path <- paste("./Data/PM", i, ".csv", sep = "")
+  temp <- read.csv(file = file_path, header = TRUE) ## read the file
+  temp <- temp[temp$Daily.Mean.PM2.5.Concentration > 0, ] ## remove the rows where pollutant measures are negative
+  ## Select useful columns
+  selected <- dplyr::select(temp, Date, COUNTY_CODE, COUNTY, Site.ID, Site.Name, SITE_LATITUDE, SITE_LONGITUDE, Daily.Mean.PM2.5.Concentration, DAILY_AQI_VALUE, DAILY_OBS_COUNT)
+  na_removed <- na.omit(selected)
+  assign(file_name, na_removed) # remove rows containing NAs
+}
+
+# Read ozone data
+for (i in c(start_yr_ozone:end_yr_ozone)) {
+  file_name <- paste("ozone", i, sep = "")
+  file_path <- paste("./Data/ozone", i, ".csv", sep = "")
+  temp <- read.csv(file = file_path, header = TRUE)
+  temp <- temp[temp$Daily.Max.8.hour.Ozone.Concentration > 0, ] ## remove the rows where pollutant measures are negative
+  ## Select columns
+  selected <- dplyr::select(temp, Date, COUNTY_CODE, COUNTY, Site.ID, Site.Name, SITE_LATITUDE, SITE_LONGITUDE, Daily.Max.8.hour.Ozone.Concentration, DAILY_AQI_VALUE, DAILY_OBS_COUNT)
+  na_removed <- na.omit(selected) # remove rows containing NAs
+  assign(file_name, na_removed)
+}
+
+# ------ Part II. 2. Read Meteorology Data
+Meteorology <- read.csv(file = "./Data/Meteorology1.csv" , header = TRUE)
+
+
+
+# ------ Part II 3. Load the data from NOAA with Professor Hassanzadeh's indices
+## Note: this data is from May 1 - Sep 30 of 2000-2014
+NOAA <- read_excel("./Data/simple_NOAA.xlsx")
+
+# ------ Part II 4. import the corresponding horizontal and vertical wind vectors data, i.e. U2 and V2.
+# First, we import the corresponding horizontal and vertical wind vectors data, i.e. U2 and V2.
+U2_data <- read_excel("./Data/U2_data.xlsx")
+V2_data <- read_excel("./Data/V2_data.xlsx")
+```
+
+## Part III. Data Wrangling
+## Part III. 1. Combine Pollutant Data of All Years
+```{r}
+# Combine all years for PM into one dataset
+PM_all <- combine_yr_remove_NA("PM", 2000, 2018)
+# Combine all years for ozone into one dataset
+ozone_all  <- combine_yr_remove_NA("ozone", 1980, 2018)
+```
+
+## Part III. 2. Further Wrangling Stages
+```{r}
+# Wrangling
+
+# Separate Date variable into Year, Month, and Day for both pollutants
+ozone_all_separated <- separate_date(ozone_all)
+PM_all_separated <- separate_date(PM_all)
+
+# Standardize the format of year: 1 -> 2001 and 7 -> 2007
+PM_all_separated <- standardize_PM_date(PM_all_separated) 
+
+# Combine the two datasets into one and remove imcomplete rows
+both_pollutants_combined <- combine_pollutants_nonnegative(ozone_all_separated, PM_all_separated)
+
+# Remove rows with nonpositive concnetration value (suggested by mentors)
+ozone_nonnegative <- ozone_positive(ozone_all_separated)
+PM_nonnegative <- PM_positive(PM_all_separated)
+
+# Select data from April to Octorber for ozone since this is the unique ozone season for Houston
+ozone_nonnegative_4_10 <-  ozone_April_to_Octorber(ozone_nonnegative)
+
+# Select days where one pollutant concentration exceeded the federal standard
+exceedance_ozone <- exceed_ozone(ozone_nonnegative)
+exceedance_PM <- exceed_PM(PM_nonnegative)
+
+# Select days where both pollutant concentrations exceeded the federal standards
+exceedance_both <- exceed_both(both_pollutants_combined)
+
+# Separate the Data variable into Year, Month, and Day for the meteorology dataset
+Meteorology_separated <- separate_meteorology(Meteorology)
+
+# Combine the meteorology dataset with the pollutant datasets
+Meteorology_ozone_combined <- Combine_Meteorology_ozone(Meteorology_separated, ozone_all_separated)
+Meteorology_PM_combined <- Combine_Meteorology_PM(Meteorology_separated, PM_all_separated)
+```
+
+## Part IV. EDA
+## Part IV. EDA 1. Heat Map
+```{r}
+# Get the range of annual ave ozone to determine the color scale
+ave_ozone <- c()
+for (i in c(start_yr_ozone:end_yr_ozone)) {
+  str <- paste("ozone", i, sep = "")
+  df <- eval(as.symbol(str))
+  ave_ozone <- c(ave_ozone, mean(df$Daily.Max.8.hour.Ozone.Concentration))
+}
+min_ave_ozone <- min(ave_ozone, na.rm = TRUE)
+max_ave_ozone <- max(ave_ozone, na.rm = TRUE)
+cat("ave ozone range:", min_ave_ozone, max_ave_ozone)
+
+# Get the range of annual PM ave to determine the color scale
+ave_PM <- c()
+for (i in c(start_yr_PM:end_yr_PM)) {
+  str <- paste("PM", i, sep = "")
+  df <- eval(as.symbol(str))
+  ave_PM <- c(ave_PM, mean(df$Daily.Mean.PM2.5.Concentration))
+}
+min_ave_PM <- min(ave_PM, na.rm = TRUE)
+max_ave_PM <- max(ave_PM, na.rm = TRUE)
+cat("ave PM range:", min_ave_PM, max_ave_PM)
+
+# make map for PM average over all years
+map_PM_all <- draw_pollutant_map(PM_all_separated, "PM", "2000-2018")
+ggsave(map_PM_all, file = "map_PM_all.png", width = 20, height = 20, units = "cm",
+         path = "./Graph_Output/Map_Output")
+
+# make map for ozone average over all years
+map_ozone_all <- draw_pollutant_map(ozone_all_separated, "Ozone", "1980-2018") 
+ggsave(map_ozone_all, file = "map_ozone_all.png", width = 20, height = 20, units = "cm",
+         path = "./Graph_Output/Map_Output")
+
+# make a map for PM average over each year
+for (i in c(start_yr_PM:end_yr_PM)) {
+  str <- paste("PM", i, sep = "")
+  df <- eval(as.symbol(str))
+  temp_map <- draw_pollutant_map(df, "PM", i)
+
+  map_name <- paste0("map_", str)
+  assign(map_name, temp_map)
+  ggsave(temp_map, file = paste0(map_name, ".png"), width = 20, height = 20, units = "cm",
+         path = "./Graph_Output/Map_Output/PM_Map")
+}
+
+# make a map for ozone average over each year
+for (i in c(start_yr_ozone:end_yr_ozone)) {
+  str <- paste("ozone", i, sep = "")
+  df <- eval(as.symbol(str))
+  temp_map <- draw_pollutant_map(df, "Ozone", i)
+
+  map_name <- paste0("map_", str)
+  assign(map_name, temp_map)
+  ggsave(temp_map, file = paste0(map_name, ".png"), width = 20, height = 20, units = "cm",
+         path = "./Graph_Output/Map_Output/Ozone_Map")
+}
+```
+
+## Part IV. EDA 2. Times Series and More
+```{r}
+# EDA
+
+# Compute average pollutant concentrations by different scales
+average_ozone_county_year <- compute_average_ozone(ozone_nonnegative_4_10, "COUNTY", "Year")
+average_ozone_year_month <- compute_average_ozone(ozone_nonnegative, "Year", "Month")
+average_ozone_year <- compute_average_ozone(ozone_nonnegative_4_10, "Year", NULL)
+average_ozone_month <- compute_average_ozone(ozone_nonnegative, "Month", NULL)
+
+average_PM_COUNTY_year <- compute_average_PM(PM_nonnegative, "COUNTY", "Year")
+average_PM_year_month <- compute_average_PM(PM_nonnegative, "Year", "Month")
+average_PM_year <- compute_average_PM(PM_nonnegative, "Year", NULL)
+average_PM_month <- compute_average_PM(PM_nonnegative, "Month", NULL)
+
+# Compute the fourth highest ozone concentration by different scales since federal standard evaluate this particular value 
+ozone4th <- fourth_highest_ozone(ozone_nonnegative, "Site.Name", "Year")
+ozone4th_allsites <- fourth_highest_ozone(ozone_nonnegative, "Year", NULL)
+
+# Compute pollutant concentrations of different percentiles (1%, 10%, 90%, 99%) by different scales
+ozone_site_percentile <- ozone_percentile_table(ozone_nonnegative, "Site.Name", "Year")
+ozone_site_percentile_4_10 <- ozone_percentile_table(ozone_nonnegative_4_10, "Site.Name", "Year")
+PM_site_percentile <- PM_percentile_table(PM_nonnegative, "Site.Name", "Year")
+
+ozone_year_percentile <- ozone_percentile_table(ozone_nonnegative, "Year", NULL)
+ozone_year_percentile_4_10 <- ozone_percentile_table(ozone_nonnegative_4_10, "Year", NULL)
+PM_year_percentile <- PM_percentile_table(PM_nonnegative, "Year", NULL)
+# These tables were not presented in the report submitted last week
+
+# Convert the above datasets into a format that is easier for plotting (i.e, making a new variable Percentile)
+ozone_site_percentile_gathered <- ozone_percentile_gathered(ozone_site_percentile)
+ozone_site_percentile_gathered_4_10 <- ozone_percentile_gathered(ozone_site_percentile_4_10)
+PM_site_percentile_gathered <- PM_percentile_gathered(PM_site_percentile)
+
+ozone_year_percentile_gathered <- ozone_percentile_gathered(ozone_year_percentile)
+ozone_year_percentile_gathered_4_10 <- ozone_percentile_gathered(ozone_year_percentile_4_10)
+PM_year_percentile_gathered <- PM_percentile_gathered(PM_year_percentile)
+
+# Plots
+
+# figure 1.3.1
+Annually_Averaged_Ozone(average_ozone_county_year)
+  
+# figure 1.3.2
+Annually_Averaged_PM(average_PM_COUNTY_year)
+  
+# figure 1.3.3
+Fourth_Highest_Ozone_Site(ozone4th)
+
+# figure 1.3.4
+Fourth_Highest_Ozone_All(ozone4th_allsites)
+
+# figure 1.3.5
+Percentile_ozone(ozone_year_percentile_gathered_4_10)
+  
+# figure 1.3.6
+Percentile_PM(PM_year_percentile_gathered)
+
+# figure 1.4.1
+Seasonality_PM(average_PM_month)
+  
+# figure 1.4.2
+Seasonality_PM_AllYears(average_PM_year_month)
+
+# figure 1.4.3
+Seasonality_ozone(average_ozone_month)
+  
+# figure 1.4.4
+Seasonality_ozone_AllYears(average_ozone_year_month)
+  
+# figure 1.5.1
+Linear_Relationship(both_pollutants_combined)
+
+# figure 1.5.2
+Exceedance_Relationship(exceedance_both)
+```
+
+## Part IV. EDA 3. Clustering (1) Prepare Clusters
+```{r}
+# Part IV. EDA 3. (1)
+load("./Data/cluster_indices_manuel.RData") # We loaded some clustering results here because making some of the clusters takes 20 minutes. Many of the results loaded here are no longer used in the report. The cluster index that we create in this report takes seconds to create, so this line is unnecessary, but we will leave it for future reference.
+
+startyear <- 2000
+endyear <- 2014
+startmonth <- 5
+endmonth <- 9
+
+# We isolate the data relevant to our timeframe for ozone and PM
+# load("Pollutant_Data_Mao.RData")
+ozone_all_new <- relevant_dates(ozone_all, startmonth, endmonth, startyear, endyear)
+PM_all_new <- relevant_dates(PM_all, startmonth, endmonth, startyear, endyear)
+
+wind_data <- prepare_for_clustering(U2 = U2_data, V2 = V2_data) # and here is our prepared data for clustering
+
+```
+
+## Part IV. EDA 3. Clustering (2) Consensus Clustering and EDA
+```{r}
+# This seed is throughout to ensure reproducibility
+set.seed(22)
+
+
+# Obtain PCA-reduced data at 90% variance.
+wind.pc90 <- pca(wind_data, cen = FALSE, sca = FALSE, threshold = 0.9)
+
+###### UNCOMMENT for k-means consensus clustering ########
+# [Euclidean] K-means consensus clustering
+#consensus_cluster(wind.pc90, k = 12, num_rep = 100, pItems = 0.8, pFeatures = 1, dist_metric = "euclidean", method = "km", #set.seed = 22)
+
+###### UNCOMMENT for PAM consensus clustering: Euclidean, Manhattan, and Minkowski ########
+# Euclidean, Manhattan, and Minkowski PAM consensus clustering
+#for(distance_metric in c("euclidean", "manhattan", "minkowski")) {
+  
+#  consensus_cluster(wind.pc90, k = 12, num_rep = 100, pItems = 0.8, pFeatures = 1, dist_metric = distance_metric, method = "pam", #set.seed = 22)
+  
+#}
+
+
+# We will save to the global environment the index column given to us by Professor Hassanzadeh, and we will create our new clustering based on consensus clustering results, which is k-means where k = 6.
+given_clusters <- NOAA$cluster_number
+km_eu_k6_100x_pc90 <- k_means_cluster(wind.pc90, k = 6, reps = 100)
+# We get the averages for each clustering technique
+avgs_by_given_clusters <- avgs_by_clust(NOAA, ozone_all_new, PM_all_new, given_clusters)
+avgs_by_new_clusters <- avgs_by_clust(NOAA, ozone_all_new, PM_all_new, km_eu_k6_100x_pc90)
+
+
+
+# Now let us graph the results we obtained:
+
+Given_avgs_pollution(avgs_by_given_clusters)
+
+New_avgs_pollution(avgs_by_new_clusters)
+
+
+# Now, let's produce the plot of the wind clusters to visualize them geographically using MATLAB:
+
+orderedC <- createC()
+
+writeMat("./Graph_Output/matlab_wind_files/orderedC.mat", orderedC = orderedC)
+
+run_matlab_script("./Graph_Output/matlab_wind_files/realNARkmeans.m")
+
+```
+
+
+
+
+## Part IV. EDA 3. Clustering (3) Attach Cluster Indices to Datasets
+```{r}
+# Attach validated cluster indices to each date first
+NOAA_km <- separate_add_cluster_NOAA(NOAA, km_eu_k6_100x_pc90)
+NOAA_km_ozone <- combine_NOAA_cluster_ozone(NOAA_km, ozone_all_separated)
+NOAA_km_PM <- combine_NOAA_cluster_PM(NOAA_km, PM_all_separated)
+
+Meteorology_PM_combined_km <- combine_Meteorology_cluster(Meteorology_PM_combined, NOAA_km)
+Meteorology_ozone_combined_km <- combine_Meteorology_cluster(Meteorology_ozone_combined, NOAA_km)
+```
+
+## PArt IV. EDA 3. Clustering (4) Further Cluster Analysis
+```{r}
+# wrangling for cluster analysis
+average_ozone_cluster <- cluster_ozone(NOAA_km_ozone)
+average_PM_cluster <- cluster_PM(NOAA_km_PM)
+cluster_prop <- Cluster_Frequency(NOAA_km)
+
+# wrangling for weekday analysis
+weekday_average_ozone <- Weekday_Ozone(NOAA_km_ozone)
+weekday_average_PM <- Weekday_PM(NOAA_km_PM)
+
+# Plot Annually Averaged Ozone Concentration by Cluster
+Cluster_Ozone(average_ozone_cluster)
+  
+# Plot Annually Averaged PM Concentration by Cluster
+Cluster_PM(average_PM_cluster)
+
+# Plot Frequency of Each Cluster by Year
+Cluster_Frequency_Plot(cluster_prop)
+
+# Plot Average Ozone by Weekday
+Weekday_Ozone_Plot(weekday_average_ozone)
+  
+# Plot Average PM by Weekday
+Weekday_PM_Plot(weekday_average_PM)
+```
+
+## Part V. Modeling
+## Part V. Modeling 1. Random Forest - Pollutant vs Meteorology - (1) Generate All Forests
+```{r}
+# RF: PM vs meteo
+PM_meteo_rf_pack <- rf_pollutant_vs_meteo(dat = Meteorology_PM_combined_km, poll_type = "PM", num_tree = 500, node_min_size = 5)
+
+# RF: Ozone vs meteo
+ozone_meteo_rf_pack <- rf_pollutant_vs_meteo(Meteorology_ozone_combined_km, poll_type = "ozone", num_tree = 500, node_min_size = 5)
+
+# RF: PM vs NOAA
+PM_NOAA_rf_pack <- rf_pollutant_vs_NOAA(dat = na.omit(NOAA_km_PM), poll_type = "PM", num_tree = 500, node_min_size = 5)
+
+# RF: Ozone vs NOAA
+ozone_NOAA_rf_pack <- rf_pollutant_vs_NOAA(dat = na.omit(NOAA_km_ozone), poll_type = "ozone", num_tree = 500, node_min_size = 5)
+
+```
+
+
+
+## Part V. Modeling 1. Random Forest - Pollutant vs Meteorology - (2) Breakdown Comparison (from Meteorology Dataset)
+```{r}
+# 1. Across precipitation  ------------------------------------------------------------------
+
+## PM across precipitation
+
+rf_PM_PRCP_point <- draw_rf_PM_plot_point(x_var = PM_meteo_rf_pack$testing_dat$PRCP, 
+                                          x_var_label = "Percipitation (inch)",
+                                          predicted_PM = PM_meteo_rf_pack$forest_pred, 
+                                          true_PM = PM_meteo_rf_pack$testing_dat$response)
+ggsave(rf_PM_PRCP_point, file = "rf_PM_PRCP_point.png", width = 20, height = 20, units = "cm",
+         path = "./Graph_Output/RF_Comparison_Plots/Breakdown_Comparisons")
+
+# rf_PM_PRCP_average <- draw_rf_PM_plot_average(x_var = PM_meteo_rf_pack$testing_dat$PRCP,
+#                                               x_var_label = "Percipitation (inch)",
+#                                               predicted_PM = PM_meteo_rf_pack$forest_pred,
+#                                               true_PM = PM_meteo_rf_pack$testing_dat$response)
+# ggsave(rf_PM_PRCP_average, file = "rf_PM_PRCP_average.png", width = 20, height = 20, units = "cm",
+#          path = "./Graph_Output/RF_Comparison_Plots/Breakdown_Comparisons")
+
+
+## ozone across precipitation
+
+rf_ozone_PRCP_point <- draw_rf_ozone_plot_point(x_var = ozone_meteo_rf_pack$testing_dat$PRCP, 
+                                          x_var_label = "Percipitation (inch)",
+                                          predicted_ozone = ozone_meteo_rf_pack$forest_pred, 
+                                          true_ozone = ozone_meteo_rf_pack$testing_dat$response)
+ggsave(rf_ozone_PRCP_point, file = "rf_ozone_PRCP_point.png", width = 20, height = 20, units = "cm",
+         path = "./Graph_Output/RF_Comparison_Plots/Breakdown_Comparisons")
+
+# rf_ozone_PRCP_average <- draw_rf_ozone_plot_average(x_var = ozone_meteo_rf_pack$testing_dat$PRCP,
+#                                               x_var_label = "Percipitation (inch)",
+#                                               predicted_ozone = ozone_meteo_rf_pack$forest_pred,
+#                                               true_ozone = ozone_meteo_rf_pack$testing_dat$response)
+# ggsave(rf_ozone_PRCP_average, file = "rf_ozone_PRCP_average.png", width = 20, height = 20, units = "cm",
+#          path = "./Graph_Output/RF_Comparison_Plots/Breakdown_Comparisons")
+
+
+
+# 2. Across max temperature  ------------------------------------------------------------------
+
+## PM across daily max temperature
+
+# rf_PM_TAVG_point <- draw_rf_PM_plot_point(x_var = PM_meteo_rf_pack$testing_dat$TMAX,
+#                                           x_var_label = "Daily Max Temperature (F)",
+#                                           predicted_PM = PM_meteo_rf_pack$forest_pred,
+#                                           true_PM = PM_meteo_rf_pack$testing_dat$response)
+# ggsave(rf_PM_TAVG_point, file = "rf_PM_TMAX_point.png", width = 20, height = 20, units = "cm",
+#          path = "./Graph_Output/RF_Comparison_Plots/Breakdown_Comparisons")
+
+rf_PM_TAVG_average <- draw_rf_PM_plot_average(x_var = PM_meteo_rf_pack$testing_dat$TMAX, 
+                                              x_var_label = "Daily Max Temperature (F)",
+                                              predicted_PM = PM_meteo_rf_pack$forest_pred, 
+                                              true_PM = PM_meteo_rf_pack$testing_dat$response)
+ggsave(rf_PM_TAVG_average, file = "rf_PM_TMAX_average.png", width = 20, height = 20, units = "cm",
+         path = "./Graph_Output/RF_Comparison_Plots/Breakdown_Comparisons")
+
+
+## ozone across daily max temperature
+
+# rf_ozone_TAVG_point <- draw_rf_ozone_plot_point(x_var = ozone_meteo_rf_pack$testing_dat$TMAX,
+#                                           x_var_label = "Daily Max Temperature (F)",
+#                                           predicted_ozone = ozone_meteo_rf_pack$forest_pred,
+#                                           true_ozone = ozone_meteo_rf_pack$testing_dat$response)
+# ggsave(rf_ozone_TAVG_point, file = "rf_ozone_TMAX_point.png", width = 20, height = 20, units = "cm",
+#          path = "./Graph_Output/RF_Comparison_Plots/Breakdown_Comparisons")
+
+rf_ozone_TAVG_average <- draw_rf_ozone_plot_average(x_var = ozone_meteo_rf_pack$testing_dat$TMAX, 
+                                              x_var_label = "Daily Max Temperature (F)",
+                                              predicted_ozone = ozone_meteo_rf_pack$forest_pred, 
+                                              true_ozone = ozone_meteo_rf_pack$testing_dat$response)
+ggsave(rf_ozone_TAVG_average, file = "rf_ozone_TMAX_average.png", width = 20, height = 20, units = "cm",
+         path = "./Graph_Output/RF_Comparison_Plots/Breakdown_Comparisons")
+```
+
+## Part V. Modeling 1. Random Forest - Pollutant vs Meteorology - (3) Overall Comparison (from Meteorology Dataset) 
+```{r}
+
+## All Predicted vs. True
+
+# PM Predicted vs. True
+draw_rf_pred_true(true = PM_meteo_rf_pack$testing_true_pollutant, predicted = PM_meteo_rf_pack$forest_pred, poll_type = "PM", unit = "ug/m3 LC", datasource = "Meteorology", w_or_wo = "with")
+
+## Ozone Predicted vs. True
+draw_rf_pred_true(true = ozone_meteo_rf_pack$testing_true_pollutant, predicted = ozone_meteo_rf_pack$forest_pred, poll_type = "Ozone", unit = "parts per million", datasource = "Meteorology", w_or_wo = "with")
+```
+
+## Part V. Modeling 1. (1) Random Forest - Pollutant vs Meteorology - (3) Overall Comparison (from NOAA Dataset)
+```{r}
+# Draw PM graph, from NOAA
+draw_rf_pred_true(true = PM_NOAA_rf_pack$testing_true_pollutant, predicted = PM_NOAA_rf_pack$forest_pred, poll_type = "PM", unit = "ug/m3 LC", datasource = "NOAA", w_or_wo = "with")
+# Draw Ozone graph, from NOAA
+draw_rf_pred_true(true = ozone_NOAA_rf_pack$testing_true_pollutant, predicted = ozone_NOAA_rf_pack$forest_pred, poll_type = "Ozone", unit = "part per million", datasource = "NOAA", w_or_wo = "with")
+
+```
+
+
+## Part V. Modeling 2. VAR modeling
+```{r}
+var_predict_ozone(var_data_ozone = Meteorology_ozone_combined_km, train_portion = 4/5, var_lag_max = 5, var_ci = 0.95)
+var_predict_PM(Meteorology_PM_combined_km, train_portion = 4/5, var_lag_max = 6, var_ci = 0.95)
+```
