@@ -1,0 +1,302 @@
+---
+title: "STAT413_HW4_Hongyu_Mao"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Chapter 8 Exercise 9
+## (a)
+```{r}
+library(ISLR)
+library('caret')
+library('tidyverse')
+library('ggthemes')
+library('rpart')
+library('rpart.plot')
+library('knitr')
+library('kableExtra')
+library(tree)
+library("e1071")
+
+set.seed(2)
+
+dat <- OJ
+train_idx <- sample(c(1:1070), size = 800)
+train <- dat[train_idx, ]
+test <- dat[-train_idx, ]
+```
+
+## (b)
+```{r}
+# tree <- rpart(Purchase ~ ., data = train, method = 'class', control = rpart.control(cp = 0))
+
+tree <- tree(Purchase ~ ., data = train)
+summary(tree)
+```
+The variables actually used in tree construction are LoyalCH, PriceDiff, ListPriceDiff, PctDiscMM. The training error rate is 0.1675. The tree has 8 terminal nodes.
+
+## (c)
+```{r}
+tree
+```
+If we look at node 8, which is a terminal node. It means that there are 63 obserations that fall into the branch where LoyalCH < 0.049 (this is the split standard) with a deviance of 10.27; the prediction is MM; and 1.6% of the observations are CH and 98.4% are MM. This node means that if a customer scores a LoyalCH < 0.049, then he/she is expected to purhcase Minute Maid.
+
+## (d)
+```{r}
+plot(tree)
+text(tree,pretty=0)
+```
+We can use this plot to predict what type of juice a customer will buy given the information of this customer on LoyalCH, PriceDiff, ListPriceDiff, and PctDiscMM. We first look at if LoyalCH < 0.504. If yes, then we go to the left branch for next step; if no, then we go to the right branch for next step. We repeat such steps with different split standards, then eventually arrive at a terminal node which tells us if this customer will buy CH or MM juice. From the graph, we can conclude that the most important variable is LoyalCH because both the first layer and the second layer split on LoyalCH.
+
+## (e)
+```{r}
+pred <- predict(tree,test,type="class")
+table_temp <- table(test$Purchase, pred)
+table_temp
+test_err_tree <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("The test error rate is:", test_err_tree, "\n")
+```
+
+## (f)
+```{r}
+cv_oj=cv.tree(tree,FUN=prune.misclass)
+cv_oj
+```
+## (g)
+```{r}
+plot(cv_oj$size ,cv_oj$dev ,type="b", xlab = "Tree Size", ylab = "Deviance")
+cat("\n")
+```
+## (h)
+```{r}
+opt_size <- cv_oj$size[which.min(cv_oj$dev)]
+opt_size
+```
+Size 7 corresponds to the lowest cross-validated classification error rate.
+
+## (i)
+```{r}
+pruned_tree <- prune.misclass(tree, best = opt_size)
+plot(pruned_tree)
+text(pruned_tree, pretty = 0)
+cat("\n")
+
+```
+## (j)
+```{r}
+summary(pruned_tree)
+```
+&nbsp;
+The pruned tree's training error rate is 0.1675, which is the same as the un-pruned tree's training error rate.
+
+## (k)
+```{r}
+pruned_pred <- predict(pruned_tree, test, type = "class")
+table_temp <- table(test$Purchase, pruned_pred)
+table_temp
+test_err_pruned <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("The test error rate is:", test_err_pruned, "\n")
+```
+The pruned tree's testing error rate is 0.1481, which is the same as the un-pruned tree's testing error rate.
+
+
+
+## Chapter 9 Exercise 8
+## (a) Same training and testing set as the first exercise
+## (b)
+```{r}
+svm_lin <- svm(Purchase ~ ., data = train, kernel = "linear", cost = 0.01)
+summary(svm_lin)
+```
+There are 440 support vectors obtained from 800 obersavations from the training set, in which 220 are CH and 220 are MM.
+
+## (c)
+```{r}
+train_pred_svm_lin <- predict(svm_lin, train)
+table_temp <- table(train$Purchase, train_pred_svm_lin)
+table_temp
+train_err_svm_lin <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Linear kernel's training error rate is:", train_err_svm_lin, "\n")
+
+test_pred_svm_lin <- predict(svm_lin, test)
+table_temp <- table(test$Purchase, test_pred_svm_lin)
+table_temp
+test_err_svm_lin <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Linear kernel's test error rate is:", test_err_svm_lin, "\n")
+```
+
+## (d)
+```{r}
+tune_svm_lin <- tune(svm, Purchase ~ ., data = train, kernel = "linear", ranges = list(cost = 10^seq(-2, 1, by = 0.25)))
+summary(tune_svm_lin)
+opt_cost_svm_lin <- tune_svm_lin$best.parameters$cost
+cat("The optimal cost is:", opt_cost_svm_lin)
+```
+
+## (e)
+```{r}
+svm_lin_opt <- svm(Purchase ~ ., data = train, kernel = "linear", cost = opt_cost_svm_lin)
+
+train_pred_svm_lin_opt <- predict(svm_lin_opt, train)
+table_temp <- table(train$Purchase, train_pred_svm_lin_opt)
+table_temp
+train_err_svm_lin_opt <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Linear kernel's new training error rate is:", train_err_svm_lin_opt, "\n")
+
+test_pred_svm_lin_opt <- predict(svm_lin_opt, test)
+table_temp <- table(test$Purchase, test_pred_svm_lin_opt)
+table_temp
+test_err_svm_lin_opt <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Linear kernel's new test error rate is:", test_err_svm_lin_opt, "\n")
+```
+For linear kernel, tuning indeed reduced both training error rate and testing error rate.
+
+## (f) - (b) part
+```{r}
+svm_rad <- svm(Purchase ~ ., data = train, kernel = "radial")
+summary(svm_rad)
+```
+For radial kernel, there are 372 support vectors obtained from 800 obersavations from the training set, in which 189 are CH and 183 are MM.
+
+## (f) - (c) part
+```{r}
+train_pred_svm_rad <- predict(svm_rad, train)
+table_temp <- table(train$Purchase, train_pred_svm_rad)
+table_temp
+train_err_svm_rad <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Radial kernel's training error rate is:", train_err_svm_rad, "\n")
+
+test_pred_svm_rad <- predict(svm_rad, test)
+table_temp <- table(test$Purchase, test_pred_svm_rad)
+table_temp
+test_err_svm_rad <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Radial kernel's test error rate is:", test_err_svm_rad, "\n")
+```
+
+## (f) - (d) part
+```{r}
+tune_svm_rad <- tune(svm, Purchase ~ ., data = train, kernel = "radial", ranges = list(cost = 10^seq(-2, 1, by = 0.25)))
+summary(tune_svm_rad)
+opt_cost_svm_rad <- tune_svm_rad$best.parameters$cost
+cat("The optimal cost is:", opt_cost_svm_rad)
+```
+
+## (f) - (e) part
+```{r}
+svm_rad_opt <- svm(Purchase ~ ., data = train, kernel = "radial", cost = opt_cost_svm_rad)
+
+train_pred_svm_rad_opt <- predict(svm_rad_opt, train)
+table_temp <- table(train$Purchase, train_pred_svm_rad_opt)
+table_temp
+train_err_svm_rad_opt <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Radial kernel's new training error rate is:", train_err_svm_rad_opt, "\n")
+
+test_pred_svm_rad_opt <- predict(svm_rad_opt, test)
+table_temp <- table(test$Purchase, test_pred_svm_rad_opt)
+table_temp
+test_err_svm_rad_opt <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Radial kernel's new test error rate is:", test_err_svm_rad_opt, "\n")
+```
+For radial kernel, tuning didn't really change training error rate or testing error rate.
+
+## (g) - (b) part
+```{r}
+svm_poly <- svm(Purchase ~ ., data = train, kernel = "polynomial", degree = 2)
+summary(svm_poly)
+```
+For polynomial kernel, there are 448 support vectors obtained from 800 obersavations from the training set, in which 226 are CH and 222 are MM.
+
+## (g) - (c) part
+```{r}
+train_pred_svm_poly <- predict(svm_poly, train)
+table_temp <- table(train$Purchase, train_pred_svm_poly)
+table_temp
+train_err_svm_poly <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Polynomial kernel's training error rate is:", train_err_svm_poly, "\n")
+
+test_pred_svm_poly <- predict(svm_poly, test)
+table_temp <- table(test$Purchase, test_pred_svm_poly)
+table_temp
+test_err_svm_poly <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Polynomial kernel's test error rate is:", test_err_svm_poly, "\n")
+```
+
+## (g) - (d) part
+```{r}
+tune_svm_poly <- tune(svm, Purchase ~ ., data = train, kernel = "polynomial", degree = 2, ranges = list(cost = 10^seq(-2, 1, by = 0.25)))
+summary(tune_svm_poly)
+opt_cost_svm_poly <- tune_svm_poly$best.parameters$cost
+cat("The optimal cost is:", opt_cost_svm_poly)
+```
+
+## (g) - (e) part
+```{r}
+svm_poly_opt <- svm(Purchase ~ ., data = train, kernel = "polynomial", degree = 2, cost = opt_cost_svm_poly)
+
+train_pred_svm_poly_opt <- predict(svm_poly_opt, train)
+table_temp <- table(train$Purchase, train_pred_svm_poly_opt)
+table_temp
+train_err_svm_poly_opt <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Polynomial kernel's new training error rate is:", train_err_svm_poly_opt, "\n")
+
+test_pred_svm_poly_opt <- predict(svm_poly_opt, test)
+table_temp <- table(test$Purchase, test_pred_svm_poly_opt)
+table_temp
+test_err_svm_poly_opt <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("Polynomial kernel's new test error rate is:", test_err_svm_poly_opt, "\n")
+```
+For polynomial kernel, tuning reduced both training error rate and testing error rate.
+
+## RF - (b) part
+```{r}
+require(randomForest)
+forest <- randomForest( Purchase ~ ., data = train, ntree = 100, nodesize = 20)
+forest
+```
+
+## RF - (c) part
+```{r}
+forest$confusion
+train_err_rf <- tail(forest$err.rate[, 1], n=1)
+cat("RF's training error rate is:", train_err_rf, "\n")
+
+pred_rf <- predict(forest, test)
+table_temp <- table(test$Purchase, pred_rf)
+table_temp
+test_err_rf <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("RF's test error rate is:", test_err_rf, "\n")
+```
+
+## RF - (d) part
+```{r}
+tune_forest <- tune(randomForest, train.x = Purchase ~ ., data = train, validation.x = test)
+tune_forest
+```
+
+## RF - (e) part
+```{r}
+forest_tuned <- tune_forest$best.model
+
+forest_tuned$confusion
+train_err_forest_tuned <- tail(forest_tuned$err.rate[, 1], n=1)
+cat("RF's new training error rate is:", train_err_forest_tuned, "\n")
+
+pred_forest_tuned <- predict(forest_tuned, test)
+table_temp <- table(test$Purchase, pred_forest_tuned)
+table_temp
+test_err_forest_tuned <- (table_temp[1,2] + table_temp[2,1]) / sum(table_temp)
+cat("RF's new test error rate is:", test_err_forest_tuned, "\n")
+```
+For random forest, tuning actually increased both training error rate and testing error rate.
+
+## (h)
+Overall, all the models' error rate on both training and testing data are similar, but the SVM with radial kernel is slightly better. 
+
+
+
+
+
+
