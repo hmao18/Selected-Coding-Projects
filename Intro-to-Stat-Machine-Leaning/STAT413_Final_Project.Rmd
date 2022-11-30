@@ -1,0 +1,519 @@
+---
+title: "STAT 413 Project"
+date: "4/7/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(1)
+library(Metrics)
+library(car)
+#install.packages('corrplot')
+library(corrplot)
+library(caTools)
+library(ggplot2)
+library(DAAG)
+library(pls)
+library(gam)
+library(glmnet)
+library(stats)
+library(caret)
+library(dplyr)
+```
+
+
+## Project
+
+Our project has two objectives. One is to apply several machine learning techniques (such as linear regression, generalized additive models, PCR, PLS ) to predict the house sale price in King County and then compare the result and test error. Another objective is to use variable selection techniques, such as lasso, PCA, and adding junk variables to compare the result and test error, given the same data set. 
+
+Our data source is “House Sales in King County, USA”from www.kaggle.com.This dataset contains house sale prices for King County, which includes Seattle. It includes homes that were sold between May 2014 and May 2015. The data includes 19 house features with the price and the id columns and contains 21613 observations. 
+
+```{r}
+par(mfrow=c(1,2))
+dataset = read.csv('./kc_house_data.csv')
+hist(dataset$price, main = "Histogram of House Price", xlab = "House Price")
+
+dataset$price = log10(dataset$price)
+hist(dataset$price, main = "Histogram of Log10(House Price)", xlab = "Log10(House Price)")
+```
+Now we see that the data's response variable has much better distribution.
+
+Next, we move on to cleaning up the data set so that there are no NAs
+```{r}
+# We then change some of the data to factors
+# Changing the date to year and month format
+dataset$yr_sale = substr(dataset$date, 1, 4)
+dataset$month_sale = substr(dataset$date, 5, 6)
+# Convert the year, month of sale to numeric
+dataset$yr_sale = as.numeric(as.character(dataset$yr_sale))
+dataset$month_sale = as.numeric(as.character(dataset$month_sale))
+# Remove date after saving the year, month
+dataset <- dataset[, -which(names(dataset) %in% c("date")) ]
+
+# Removing null and id column
+dataset$id = NULL
+numberOfNA = length(which(is.na(dataset) == T))
+if(numberOfNA > 0)
+{
+  dataset = dataset[complete.cases(dataset), ]
+}
+```
+
+we look at what columns the data has:
+```{r}
+head(dataset)
+```
+
+
+Next, we see a correlation plot of all the variables
+```{r}
+corr = cor(dataset[, 1:20])
+corrplot(corr, method = "color",  cl.pos = 'n', cl.cex = 1, outline = T,  addCoef.col = "black",  number.cex = 0.60, number.digits = 2, tl.cex = 0.7)
+
+# Removing bedroom > 10 outlieres
+dataset = dataset[dataset$bedrooms <= 10, ]
+# # Convert bedrooms into factors for further analysis
+# dataset$bedrooms = as.factor(dataset$bedrooms)
+# # Convert floors into factors for further analysis
+# dataset$floors = as.factor(dataset$floors)
+# Same for waterfront
+dataset$waterfront = as.factor(dataset$waterfront)
+# View
+dataset$view = as.factor(dataset$view)
+# Condition
+dataset$condition = as.factor(dataset$condition)
+# Change sqft_basement to factor since most house do not have basement
+dataset$sqft_basement[dataset$sqft_basement != 0] = 1
+dataset$sqft_basement = as.factor(dataset$sqft_basement)
+# Remove outlier for super large sqft living with insane low price
+dataset = dataset[dataset$sqft_living != 13540, ]
+```
+
+We find that date, sqft_lot, yr_built, long and sqft_lot15 has weak correlation with price.
+
+Next, we plot an interesting relation between price and some variables to see if they have indeed linear relationship
+```{r}
+# Price vs Bedroom
+# No linear relation
+boxplot(dataset[, c("price")] ~ dataset[, c("bedrooms")], main = 'Price vs Bedrooms')
+
+# Price vs Bathroom
+# Linear relation
+boxplot(dataset[, c("price")] ~ dataset[, c("bathrooms")], main = 'Price vs Bathrooms')
+
+# Price vs Sqft_living
+# Linear relation
+boxplot(dataset[,  c("price")] ~ dataset[, c("sqft_living")], main = 'Price vs Sqft_living')
+
+# Price vs Floors
+boxplot(dataset[,  c("price")] ~ dataset[, c("floors")], main = 'Price vs Floors')
+
+# Price vs waterfront
+boxplot(dataset[, c("price")] ~ dataset[, c("waterfront")], main = 'Price vs waterfront')
+
+# Price vs view
+boxplot(dataset[, c("price")] ~ dataset[, c("view")], main = 'Price vs view')
+
+# Price vs Condition
+boxplot(dataset[, c("price")] ~ dataset[, c("condition")], main = 'Price vs condition')
+
+# Price vs Grade
+# Linear relation
+boxplot(dataset[, c("price")] ~ dataset[, c("grade")], main = 'Price vs grade')
+
+# Price vs Sqft_basement
+boxplot(dataset[, c("price")] ~ dataset[, c("sqft_basement")], main = 'Price vs sqft_basement')
+
+# Price vs yr_renovated
+# No linear relation
+boxplot(dataset[, c("price")] ~ dataset[, c("yr_renovated")], main = 'Price vs yr_renovated')
+
+# Price vs zipcode
+# No linear relation
+boxplot(dataset[, c("price")] ~ dataset[, c("zipcode")], main = 'Price vs zipcode')
+
+# Price vs sqft_living15
+# Linear Relation
+boxplot(dataset[, c("price")] ~ dataset[, c("sqft_living15")], main = 'Price vs sqft_living15')
+
+# Price vs sqft_living
+# Linear Relation
+boxplot(dataset[, c("price")] ~ dataset[, c("sqft_living")], main = 'Price vs sqft_living')
+```
+
+We find that .... have linear relations with the response variable, whereas others don't.
+
+## Testing and Training Set
+```{r}
+# Splitting dataset into training set and test set
+set.seed(1)
+sample = sample.split(dataset, SplitRatio = 0.7)
+training = subset(dataset, sample == T)
+testing = subset(dataset, sample == F)
+testing_x = testing[,-1]
+# Selected Variables from ALL VARIABLES 
+testing_x_select = testing[c("lat", "waterfront",
+                         "view", "grade")]
+# Selected Variables from ALL VARIABLES + JUNK VARIABLES 
+```
+
+# Adding junk variables 
+```{r}
+# now add in a few junk variables
+dim(training)
+training2 = cbind(training, matrix(rnorm(144070),ncol=10))
+colnames(training2)[22:31] = c("junk1","junk2","junk3", "junk4","junk5","junk6","junk7","junk8","junk9","junk10")
+
+testing2 = cbind(testing, matrix(rnorm(72030),ncol=10))
+colnames(testing2)[22:31] = c("junk1","junk2","junk3", "junk4","junk5","junk6","junk7","junk8","junk9","junk10")
+
+testing2_x = testing2[,-1]
+```
+
+## 1. MACHINE LEARNING WITH ALL VARIABLES 
+Next, we start to create a very simple lm model
+(rmse = 0.3175798)
+```{r}
+# Create model
+lm_model = lm(formula = price ~  bedrooms + bathrooms + floors + waterfront + view + condition + sqft_basement + yr_renovated + zipcode + sqft_living15 + sqft_living + grade, data = training)
+
+summary(lm_model)
+
+# we look at the residuals
+hist(lm_model$residuals)
+
+# Next, we move on to prediction
+lm_pred = predict(lm_model, newdata = testing)
+
+# result rmse
+rmse(lm_pred, testing$price)
+```
+
+Next we try PCR model (rmse = 0.3149879)
+```{r}
+set.seed(1)
+pcr.fit = pcr(price~., data = training, scale = TRUE, validation = "CV")
+pcr.pred = predict(pcr.fit, testing_x, ncomp = 5)
+rmse(pcr.pred, testing$price)
+```
+
+Try a PLS model (rmse = 0.2488483)
+```{r}
+set.seed(1)
+pls.fit = plsr(price~., data = training, scale = TRUE, validation = "CV")
+pls.pred = predict(pls.fit, testing_x, ncomp = 5)
+rmse(pls.pred, testing$price)
+```
+
+
+fitting a GAM model (rmse =  0.2056903) 
+```{r}
+set.seed(1)
+gam = gam(price ~ yr_sale + month_sale + bedrooms + bathrooms + s(sqft_living) + s(sqft_lot) + floors + waterfront + view + condition + grade + s(sqft_above) + sqft_basement + yr_built + yr_renovated + zipcode + s(lat)+ s(long) + s(sqft_living15) + s(sqft_lot15), data = training) 
+
+preds = predict(gam, newdata = testing)
+rmse(preds , testing$price)
+```
+
+fitting a Random Forest 
+```{r}
+set.seed(1)
+#bag.oj = randomForest(price~., training, importance = TRUE)
+```
+
+random forest test error (rmse = 0.1798256) 
+```{r}
+#yhat.oj = predict(bag.oj, newdata = testing)
+#rmse(yhat.oj , testing$price)
+```
+
+
+## 2. MACHINE LEARNING WITH ALL VARIABLES + JUNK VARIABLES 
+Next, we start to create a very simple lm model
+(rmse = 0.2487431)
+```{r}
+# Create model
+lm_model = lm(formula = price ~., data = training2)
+
+summary(lm_model)
+
+# we look at the residuals
+hist(lm_model$residuals)
+
+# Next, we move on to prediction
+lm_pred = predict(lm_model, newdata = testing2)
+
+# result rmse
+rmse(lm_pred, testing2$price)
+```
+
+Next we try PCR model (rmse = 0.3154171) 
+```{r}
+set.seed(1)
+pcr.fit = pcr(price~., data = training2, scale = TRUE, validation = "CV")
+pcr.pred = predict(pcr.fit, testing2_x, ncomp = 11)
+rmse(pcr.pred, testing2$price)
+```
+
+Try a PLS model (rmse = 0.2488418 )
+```{r}
+set.seed(1)
+pls.fit = plsr(price~., data = training2, scale = TRUE, validation = "CV")
+pls.pred = predict(pls.fit, testing2_x, ncomp = 10)
+rmse(pls.pred, testing2$price)
+```
+
+
+fitting a GAM model (rmse =  0.2057077) 
+```{r}
+set.seed(1)
+gam = gam(price ~ yr_sale + month_sale + bedrooms + bathrooms + s(sqft_living) + s(sqft_lot) + floors + waterfront + view + condition + grade + s(sqft_above) + sqft_basement + yr_built + yr_renovated + zipcode + s(lat)+ s(long) + s(sqft_living15) + s(sqft_lot15) + junk1 + junk2 + junk3 + junk4 + junk5 + junk6 + junk7 + junk8 + junk9 + junk10, data = training2) 
+
+preds = predict(gam, newdata = testing2)
+rmse(preds , testing2$price)
+```
+
+fitting a Random Forest 
+```{r}
+set.seed(1)
+training$view
+#bag.oj = randomForest(price~., training, importance = TRUE)
+```
+
+#random forest test error (rmse = ) 
+```{r}
+#yhat.oj = predict(bag.oj, newdata = testing)
+#rmse(yhat.oj , testing$price)
+```
+
+
+## 3. VARIABLE SELECTION WITH ALL VARIABLES
+
+## Lasso Variable Selection without junk variables
+```{r}
+x <- model.matrix(price~., training)[,-1]
+y <- training$price
+mod_lasso <- cv.glmnet(as.matrix(x), y, alpha=1)
+bestlam_lasso <- mod_lasso$lambda.min
+
+coefList <- coef(mod_lasso, s='lambda.1se')
+coefList <- data.frame(coefList@Dimnames[[1]][coefList@i+1],coefList@x)
+names(coefList) <- c('var','val')
+coefList %>%
+  arrange(-abs(val)) %>%
+  print(.,n=25)
+
+```
+
+
+## Ridge Variable Selection without junk variables
+```{r}
+mod_ridge <- cv.glmnet(as.matrix(x), y, alpha=0)
+bestlam_ridge <- mod_ridge$lambda.min
+
+coefList <- coef(mod_ridge, s='lambda.1se')
+coefList <- data.frame(coefList@Dimnames[[1]][coefList@i+1],coefList@x)
+names(coefList) <- c('var','val')
+coefList %>%
+  arrange(-abs(val)) %>%
+  print(.,n=25)
+```
+
+
+# PCA Variable Selection without junk variables
+```{r}
+# make a new dataset where all the variables are numeric, so that we can perform PCA
+num_training <- data.frame(lapply(training, function(x) as.numeric(as.character(x))))
+num_testing <- data.frame(lapply(testing, function(x) as.numeric(as.character(x))))
+
+# perform PCA
+pca=prcomp(~ ., data = num_training[, -1], scale=TRUE)
+
+# summarize PCA
+summary(pca)
+# biplot(pca, scale = 0)
+cat("PC1's influencing factors \n") 
+sort(pca$rotation[, 1], decreasing = TRUE)
+cat("PC2's influencing factors \n") 
+sort(pca$rotation[, 2], decreasing = TRUE)
+
+## predict based on the first 8 PCs --------------------
+
+#select the first 8 components, then attach price as the first column
+train.data.pca <- data.frame(Price = num_training$price, pca$x[, 1:8])
+
+#transform test into PCA
+test.data.pca <- as.data.frame(predict(pca, newdata = num_testing[, -1]))
+#select the first 8 components, then attach price as the first column
+test.data.pca <- data.frame( Price = num_testing$price,test.data.pca[,1:8])
+```
+
+```{r}
+# LR
+lm.pca <- lm(Price ~ ., data = train.data.pca)
+lm.pred <- predict(lm.pca, test.data.pca)
+rmse(test.data.pca$Price, lm.pred)
+
+# PCR
+pcr.pca <- pcr(Price ~ ., data = train.data.pca, scale = TRUE, validation = "CV")
+pcr.pred <- predict(pcr.pca, test.data.pca)
+rmse(test.data.pca$Price, pcr.pred)
+
+# PLS
+pls.pca <- plsr(Price ~ ., data = train.data.pca, scale = TRUE, validation = "CV")
+pls.pred <- predict(pls.pca, test.data.pca)
+rmse(test.data.pca$Price, pls.pred)
+
+# GAM
+gam.pca <- gam(Price ~ ., data = train.data.pca)
+gam.pred <- predict(gam.pca, test.data.pca)
+rmse(test.data.pca$Price, gam.pred)
+
+# RF
+set.seed(1)
+require(randomForest)
+rf.pca <- randomForest(Price ~ ., data = train.data.pca, ntree = 100)
+rf.pred <- predict(rf.pca, test.data.pca)
+rmse(test.data.pca$Price, rf.pred)
+```
+
+
+## 4. VARIABLE SELECTION WITH ALL VARIABLES + JUNK VARIABLES 
+
+## Lasso Variable Selection with junk variables
+```{r}
+x <- model.matrix(price~., training2)[,-1]
+y <- training2$price
+mod_lasso <- cv.glmnet(as.matrix(x), y, alpha=1)
+bestlam_lasso <- mod_lasso$lambda.min
+
+coefList <- coef(mod_lasso, s='lambda.1se')
+coefList <- data.frame(coefList@Dimnames[[1]][coefList@i+1],coefList@x)
+names(coefList) <- c('var','val')
+coefList %>%
+  arrange(-abs(val)) %>%
+  print(.,n=30)
+
+```
+
+
+## Ridge Variable Selection with junk variables
+```{r}
+mod_ridge <- cv.glmnet(as.matrix(x), y, alpha=0)
+bestlam_ridge <- mod_ridge$lambda.min
+
+coefList <- coef(mod_ridge, s='lambda.1se')
+coefList <- data.frame(coefList@Dimnames[[1]][coefList@i+1],coefList@x)
+names(coefList) <- c('var','val')
+coefList %>%
+  arrange(-abs(val)) %>%
+  print(.,n=30)
+```
+
+
+
+
+# PCA Variable Selection with junk variables
+```{r}
+# make a new dataset where all the variables are numeric, so that we can perform PCA
+num_training <- data.frame(lapply(training2, function(x) as.numeric(as.character(x))))
+num_testing <- data.frame(lapply(testing2, function(x) as.numeric(as.character(x))))
+
+# perform PCA
+pca=prcomp(~ ., data = num_training[, -1], scale=TRUE)
+
+# summarize PCA
+summary(pca)
+# biplot(pca, scale = 0)
+cat("PC1's influencing factors \n") 
+sort(pca$rotation[, 1], decreasing = TRUE)
+cat("PC2's influencing factors \n") 
+sort(pca$rotation[, 2], decreasing = TRUE)
+
+## predict based on the first 8 PCs --------------------
+
+#select the first 8 components, then attach price as the first column
+train.data.pca <- data.frame(Price = num_training$price, pca$x[, 1:15])
+
+#transform test into PCA
+test.data.pca <- as.data.frame(predict(pca, newdata = num_testing[, -1]))
+#select the first 8 components, then attach price as the first column
+test.data.pca <- data.frame( Price = num_testing$price,test.data.pca[,1:15])
+```
+
+```{r}
+# LR
+lm.pca <- lm(Price ~ ., data = train.data.pca)
+lm.pred <- predict(lm.pca, test.data.pca)
+rmse(test.data.pca$Price, lm.pred)
+
+# PCR
+pcr.pca <- pcr(Price ~ ., data = train.data.pca, scale = TRUE, validation = "CV")
+pcr.pred <- predict(pcr.pca, test.data.pca)
+rmse(test.data.pca$Price, pcr.pred)
+
+# PLS
+pls.pca <- plsr(Price ~ ., data = train.data.pca, scale = TRUE, validation = "CV")
+pls.pred <- predict(pls.pca, test.data.pca)
+rmse(test.data.pca$Price, pls.pred)
+
+# GAM
+gam.pca <- gam(Price ~ ., data = train.data.pca)
+gam.pred <- predict(gam.pca, test.data.pca)
+rmse(test.data.pca$Price, gam.pred)
+
+# RF
+require(randomForest)
+rf.pca <- randomForest(Price ~ ., data = train.data.pca, ntree = 100)
+rf.pred <- predict(rf.pca, test.data.pca)
+rmse(test.data.pca$Price, rf.pred)
+```
+
+
+
+
+
+## MACHINE LEARNING on selected Variables (from all variables) from Lasso & Ridge 
+Next, we start to create a very simple lm model
+(rmse = 0.3581526)
+```{r}
+# Create model
+lm_model = lm(formula = price ~ waterfront + view + grade, data = training)
+
+summary(lm_model)
+
+# we look at the residuals
+hist(lm_model$residuals)
+
+# Next, we move on to prediction
+lm_pred = predict(lm_model, newdata = testing)
+
+# result rmse
+rmse(lm_pred, testing$price)
+```
+
+Next we try PCR model (rmse = 0.31406069)
+```{r}
+set.seed(1)
+pcr.fit = pcr(price~ lat + waterfront + view + grade, data = training, scale = TRUE, validation = "CV")
+pcr.pred = predict(pcr.fit, testing_x_select, ncomp = 5)
+rmse(pcr.pred, testing$price)
+```
+
+Try a PLS model (rmse = 0.2488483)
+```{r}
+set.seed(1)
+pls.fit = plsr(price~ lat + waterfront + view + grade, data = training, scale = TRUE, validation = "CV")
+pls.pred = predict(pls.fit, testing_x_select, ncomp = 5)
+rmse(pls.pred, testing$price)
+```
+
+
+fitting a GAM model (rmse =  0.2056903) 
+```{r}
+set.seed(1)
+gam = gam(price ~ s(lat) + waterfront + view + grade, data = training)
+preds = predict(gam, testing_x_select)
+rmse(preds , testing$price)
+```
