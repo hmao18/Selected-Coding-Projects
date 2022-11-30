@@ -1,0 +1,574 @@
+---
+title: "Divorces in Texas 2011-2013"
+author: "STAT405 Group14: Hongyu Mao, Rylie Gao, Richard He, Qingyang Liu"
+date: "11/30/2017"
+fontsize: 10pt
+geometry: margin=1in
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(UsingR)
+library(ggplot2)
+library(RSQLite)
+library(grid)
+library(gridBase)
+options(warn = -1)
+# Connect to SQLite server.
+dcon1 <- dbConnect(SQLite(), dbname = "/Users/maohongyu/Desktop/Rice Affairs/Rice Classes/Fall 2017/STAT 405/STAT405 Final Project/SQLite Dataset/DivorceData.sqlite")
+```
+
+# Group Member
+* Yucheng He (yh43), Hongyu Mao (hm27), Qingyang Liu (ql12), Rylie Gao (yg38)
+
+# Introduction
+* Main Dataset:  
+&nbsp;&nbsp;&nbsp;&nbsp;
+Our main dataset is the Report of Divorce or Annulment Indexes from Texas Department of State Health Services in 2011, 2012, and 2013. The data set records information of each divorce in the state happened in 2011, 2012, and 2013, including each couple's husband name & age, wife name & age, number of child, date of marriage & divorce, and county name.  
+&nbsp;&nbsp;&nbsp;&nbsp;
+  
+* Question for the Main Dataset:  
+&nbsp;&nbsp;&nbsp;&nbsp;
+What are the common characteristics among the divorced population? In the following analysis, we will study divorced couples' husband & wife age, average age, age difference, marriage length, number of children, and the weather(precipitation). And we will also study the interrelationship among some of the factors.
+   
+* Supporting Dataset & Question for the Supporting Dataset:  
+&nbsp;&nbsp;&nbsp;&nbsp;
+Our supporting dataset is the Weather data by Zip Code, which describes the daily amount of precipitation recorded by every station. We aggregated this dataset in SQLite to get monthly precipitation. 
+&nbsp;&nbsp;&nbsp;&nbsp;
+  
+  
+  
+# Content
+* Analysis No.1: Husband's Age  v.s. Wife's Age 
+&nbsp;&nbsp;&nbsp;&nbsp;  
+This section explores the characteristic of husband's age and wife's age in the divorced population.  
+&nbsp;&nbsp;&nbsp;&nbsp;  
+  
+* Analysis No.2: Divorce Counts by Four Varaibles  
+&nbsp;&nbsp;&nbsp;&nbsp;1. Age Difference (in Years) v.s. Number of Divorces  
+&nbsp;&nbsp;&nbsp;&nbsp;Explores the characteristic of age difference for divorced couples.  
+&nbsp;&nbsp;&nbsp;&nbsp;2. Average Age v.s. Number of Divorces  
+&nbsp;&nbsp;&nbsp;&nbsp;Explores the characteristic of average age for divorced couples.  
+&nbsp;&nbsp;&nbsp;&nbsp;3. Marriage length (in Years) v.s. Number of divorces  
+&nbsp;&nbsp;&nbsp;&nbsp;Explores the characteristic of marriage length (in years) for divorced couples.  
+&nbsp;&nbsp;&nbsp;&nbsp;4. Number of Children v.s. Number of divorces  
+&nbsp;&nbsp;&nbsp;&nbsp;Explores the characteristic of number of children for divorced couples.  
+  
+* Analysis No.3: Number of Children v.s. Marriage Length (in Years)  
+This section explores how the number of children affects marriage length (in years).  
+  
+* Analysis No.4: Marriage length (grouped by average age) v.s. Number of Divorces + analysis of Harris County  
+This section explores how much proportion of the divorces at each marriage length (in year) is coming from a certain range of couple average age. Therefore, we can explore how the couple average age affects the number of divorces at different marriage lengths.  
+  
+* Analysis No.5: Precipitation of each month v.s. Number of Divorces in that month  
+This section explores how different months in a year affect the number of divorces, how different months affect precipitation of that month, and how the aggregated monthly precipitation affect the aggregated monthly number of divorces.  
+* Analysis No.6: Characteristics of Different Age Groups (Conceptual Plot)  
+  
+  
+# Example of Raw Data
+* _div1113_SQL_: The table containing all the marriage and divorce information from 2011 to 2013 in Texas. The columns are: SFN, H_NAME(husband's name), H_AGE(husband's age), W_NAME(wife's name), W_AGE(wife's age), NUM_CHILD(the number of children each family has), MARR_DATE(the marriage date), DIV_DATE(the divorce date), COUNTY_ID(ID  for different counties), COUNTY_NAME(name of county in Texas).  
+  
+* _Weather by Zip Code_: It records the weather condition on each day in each zip code area. We would like to check if there is any relationship between the number of divorces in a certain time period in each county and the weather condition in this time period in this county.  
+  
+  
+  
+## Analysis No.1: Husband's Age v.s. Wife's Age
+```{r}
+H_age <- as.integer(dbFetch(dbSendQuery(conn = dcon1, "
+SELECT H_AGE
+FROM div1113_SQL;
+"), -1)[[1]])
+W_age <- as.integer(dbFetch(dbSendQuery(conn = dcon1, "
+SELECT W_AGE
+FROM div1113_SQL;
+"), -1)[[1]])
+
+div_hw_df <- data.frame(H_age, W_age)[which(H_age > 5 & W_age > 5), ]
+
+ggplot(data = div_hw_df, aes(x = H_age, y = W_age)) +
+    geom_point(colour = "darkgrey", shape = 1) + 
+    ggtitle("Husband's Age and Wife's Age for each case of divorce") +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    labs(x = "Husband Age", y = "Wife Age") +
+    geom_smooth(method = "lm")
+
+# lm_hwAge <- lm(div_hw_df$W_age ~ div_hw_df$H_age)
+# summary(lm_hwAge)
+```
+  
+&nbsp;&nbsp;&nbsp;&nbsp;In this plot, each gray point represents the husband's age on horizontal axis and the wife's age on the vertical axis. We have removed all the zero ages and the NAs so that the data we focus on is valid and makes sense.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;The blue line is the linear regression line computed for the observations. We can see that there is a positive relationship between these two variables, with a slope of 0.818591. Which means that the estimated wife's age will be the husband's age times 0.8. For example, if a divorced man from Texas is 40 years old, we would predict that his ex-wife is around 32 years old.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;In this plot, actually, we also include a 95% confidence interval, but it is invisible because the standard error is too small, about 0.001. Thus, the confidence interval is too narrow to see. We think that there are two main reasons that cause this. The first one is that, we have a large amount of data, more than 200 thousand points in this plot, and therefore, we have gained more certainty about where we believe the true value is. The second one is that, our linear model has a very good precision.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;The conclusion we get here is that, generally, among divorced couples in Texas, if the man's age increases, his wife's age will also increase. In other words, the older the man is, the older his wife will be. And the wife's age is usually four fifths of the husband's age.  
+  
+  
+  
+### Analysis No. 2: Count Divorces by Four Variables
+  
+  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;In this part, we are going to analyze the characteristic of divorced couples from four factors: age difference, average age, marriage length and number of children.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;In the first plot, we will talk about the age difference between divored couples. We can see that most divorces happen when the age difference is under 15 and the number of divorces decreases suddenly when the age difference increases above 15. This is because the number of married couples whose age difference is greater than 15 is much smaller; therefore, the number of divorced couples with age difference greater than 15 is also small. And we can also find that the number of divorces decreases sharply when the age difference is greater than 5.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;The second plot is about the average age of the divorced couples. From the plot, we can see that the number of divorces is normally distributed across average ages. Most divorces happen when the couples' age is around 30-50 years old, and fewer happens when the couples get younger or older. This is easy to understand, because few people get married under 20 and most couples cannot live up to 90. And in most cases, the middle-aged couples tend to divorce.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;In the thrid plot, we will focus on the marriage length(in years) for the divorced couples. The number of divorces here follows a chi-square distribution. It increases when the marriage length increases from 0 to 6 years, and gradually decreases when the marriage length is greater than 6 years.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;In the last plot, we will study the number of children for the divorced couples. We find that most divorced couples have no kids, and fewer than one half of the divorced couples have one or two kids. Nearly no couples divorce when they have more than 3 kids. The reason is easy to understand. First, few couples have more than 3 kids. Second, for sake of the children, most parents tend to maintain the marriage and they will not divorce. Therefore, most divorces happen when the couple has no kids.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;After analyzing the four barplots, we can conclude that most divorced couples are between 30 and 50 years old; the husband and wife's age difference is smaller than 5 years old; their marriage length is between 3 and 6 years, and it is more likely that they have no kids.  
+  
+  
+  
+```{r}
+regression_table <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT
+  COUNT(*) NUM_DIV,
+  AGE_DIFF,
+  AVG_AGE,
+  MARR_LEN,
+  NUM_CHILD
+FROM MULTI_REG_TABLE
+WHERE CAST(NUM_CHILD AS INTEGER) < 10
+GROUP BY AGE_DIFF, AVG_AGE, MARR_LEN, NUM_CHILD;"))
+Y <- regression_table$NUM_DIV
+x1 <- regression_table$AGE_DIFF
+x2 <- regression_table$AVG_AGE
+x3 <- regression_table$MARR_LEN
+x4 <- regression_table$NUM_CHILD
+
+p1 <-ggplot(regression_table, aes(AGE_DIFF, NUM_DIV))
+p1 + geom_bar(stat = "identity", fill = "darkred", width = 4) +
+  ggtitle("Age Difference (in Years) between Husband and Wife v.s. Number of Divorces") +
+  labs(x = "Age Difference", y = "Number of Divorces") + scale_x_discrete(limits=seq(0, 100, 5), labels=c("0-5", "5-10", "10-15", "15-20", "20-25", "25-30", "30-35", "35-40", "40-45", "45-50", "50-55", "55-60", "60-65", "65-70", "70-75", "75-80", "80-85", "85-90", "90-95", "95-100")) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p2 <-ggplot(regression_table, aes(AVG_AGE, NUM_DIV))
+p2 + geom_bar(stat = "identity", fill = "yellow2", width = 4) +
+  ggtitle("Average Age of Husband and Wife v.s. Number of Divorces") +
+  labs(x = "Average Age", y = "Number of Divorces") +
+    scale_x_discrete(limits = seq(0, 100, 10), labels = c("0-10", "10-20", "20-30","30-40", "40-50", "50-60", "60-70", "70-80", "80-90", "90-100")) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p3 <-ggplot(regression_table, aes(MARR_LEN, NUM_DIV))
+p3 + geom_bar(stat = "identity", fill = "darkblue", width = 2.5) +
+  ggtitle("Mariage Length (in years) v.s. Number of Divorces") +
+  labs(x = "Marriage Length (in years)", y = "Number of Divorces") + 
+  scale_x_discrete(limits=seq(0, 69, 3), labels=c(" 0 - 3 " ," 3 - 6 " ," 6 - 9 " ," 9 - 12 " ," 12 - 15 " ," 15 - 18 " ," 18 - 21 " ," 21 - 24 " ," 24 - 27 " ," 27 - 30 " ," 30 - 33 " ," 33 - 36 " ," 36 - 39 " ," 39 - 42 " ," 42 - 45 " ," 45 - 48 " ," 48 - 51 " ," 51 - 54 " ," 54 - 57 " ," 57 - 60 " ," 60 - 63 " ," 63 - 66 " ," 66 - 69 ", " 69 - 72 ")) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p4 <-ggplot(regression_table, aes(NUM_CHILD, NUM_DIV))
+p4 + geom_bar(stat = "identity", fill = "darkgreen") +
+  ggtitle("Number of Children v.s. Number of Divorces") +
+  labs(x = "Number of Children", y = "Number of Divorces") +
+  scale_x_discrete(limits = c(0, 1,2,3,4,5,6,7,8,9,10))
+```
+
+  
+## Analysis No.3: Number of Children v.s. Marriage Length (in years)
+```{r echo=FALSE, fig.height = 6, fig.width = 6}
+div_date <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT DIV_DATE
+FROM div1113_SQL;"), -1)[[1]]
+marr_date <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT MARR_DATE
+FROM div1113_SQL;"), -1)[[1]]
+date_diff <- as.Date(div_date, format = "%m/%d/%y") -
+                  as.Date(marr_date, format = "%m/%d/%y")
+year_diff <- as.numeric(date_diff / 365.0)
+
+NUM_CHILD <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT NUM_CHILD
+FROM div1113_SQL;"), -1)[[1]]
+x2 <- as.numeric(as.character(NUM_CHILD))
+y2 <- as.numeric(as.character(date_diff / 365))
+
+cm_df <- data.frame("children" = as.integer(x2), "years" = abs(y2))
+cm_df <- cm_df[! is.na(cm_df$children) && ! is.na(cm_df$years), ]
+cm_df <- na.omit(cm_df)
+
+ggplot(cm_df) + # xlim(-1, 10) +  # scale_x_discrete(breaks = c("0","1","2","3","4","5","6","7","8","9","10")) +
+  aes(x = children, y = years, group = children) +
+  geom_boxplot() + # scale_x_discrete(limits = c("0", "1", "2", "3", "4", "5", "6", "7")) +
+  ggtitle("Relation between Marriaged Years and Number of Children") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Number of Children", y = "Years of Marriage") +
+  scale_x_continuous(breaks = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10), limits = c(-1, 11))
+```
+  
+&nbsp;&nbsp;&nbsp;&nbsp;In this box plot, each point represents a record of a divorced couple. We divide them into different groups according to their number of children, and for each group, we analyze their years of marriage.  
+  
+From this box plot, we concluded three observations:  
+  
+1. The maximum married years for a group decreases as the number of children increases.  
+  
+2. From the sample medians, we can see that the marriage length of a couple generally increases as the number of children this couple has increases. From a sentiment perspective, we can also see that since the more children a couple has, the more likely this couple will stay married for more years.  
+  
+3. The spread of marriage length shrinks as the number of children increases. From a statistical perspective, this is more likely due to the number of observations is fewer for divorce records with fewer children.  
+  
+4. The number of outliers decreases as the number of children increases, meaning fewer cases of abnormal data points.  
+  
+  
+  
+## Analysis No.4: Couple Average Age v.s. Years of Marriage 
+```{r}
+div_date <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT DIV_DATE
+FROM div1113_SQL;"), -1)[[1]]
+marr_date <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT MARR_DATE
+FROM div1113_SQL;"), -1)[[1]]
+date_diff <- as.Date(div_date, format = "%m/%d/%y") -
+                  as.Date(marr_date, format = "%m/%d/%y")
+year_diff <- as.numeric(date_diff / 365.0)
+
+h_age <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT H_AGE
+FROM div1113_SQL;
+"), -1)[[1]]
+w_age <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT W_AGE
+FROM div1113_SQL;
+"), -1)[[1]]
+avr_age <- (h_age + w_age) / 2
+avr_range <- abs(as.integer(avr_age / 10) * 10)
+avr_range_modified <- paste(as.character(as.integer(avr_range)),
+                            as.character(as.integer(avr_range) + 10),
+                            sep = " ~ ")
+
+div_harris <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT H_AGE, W_AGE, MARR_DATE, DIV_DATE
+FROM div1113_SQL
+WHERE COUNTY_NAME = 'HARRIS';"), -1)
+
+div_harris$date_diff <- as.Date(div_harris$DIV_DATE, format = "%m/%d/%y") - 
+  as.Date(div_harris$MARR_DATE, format = "%m/%d/%y")
+
+div_harris$h_range <- abs(as.integer(div_harris$H_AGE / 10) * 10)
+div_harris$h_range_modified <- paste(as.character(as.integer(div_harris$h_range)),
+                                     as.character(as.integer(div_harris$h_range) + 10),
+                                     sep = " ~ ")
+div_harris$year_diff <- as.numeric(div_harris$date_diff / 365.0)
+
+div_harris <- subset(div_harris, ! is.na(div_harris$h_range))
+
+############################### Plot with viewport ##########################################
+plot1 <- ggplot() + 
+  aes(x = year_diff, fill = factor(avr_range_modified)) +
+  xlim(0, 60) +
+  geom_histogram(binwidth = 1, color = "black") +
+  ggtitle("Years of Marriage and Couple Average Age -- in Texas") +
+  theme(plot.title = element_text(hjust = 0.5))  +
+  labs(x = "Years of Marriage", y = "Number of Divorces") +
+  guides(fill = guide_legend(title = "Age Range")) + 
+  scale_fill_manual(values = c("red", "orange", "yellow", "chartreuse2", "lightblue1", "blue1", "blueviolet", "lavenderblush2", "gray65", "black"))
+plot2 <- ggplot(data = div_harris) + 
+  aes(x = year_diff, fill = factor(h_range_modified)) +
+  xlim(0, 60) +
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank()) +
+  geom_histogram(binwidth = 1, color = "black") +
+  labs(x = "Years of Marriage", y = "Number of Divorces") +
+  guides(fill = FALSE) + 
+  scale_fill_manual(values = c("red", "orange", "yellow", "chartreuse2", "lightblue1", "blue1", "blueviolet", "lavenderblush2", "gray65", "black"))
+
+grid.newpage()
+vp <- viewport(x = 0.5, y = 0.5)
+grid.show.viewport(vp)
+print(plot1, vp = viewport(x = 0.5, y = 0.5, width = 1, height = 1))
+print (plot2, vp = viewport(x = 0.6, y = 0.6, width = 0.43, height = 0.5))
+grid.text("-- in Harris County", x = 0.69, y = 0.65)
+```
+  
+  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;Talking of couple’s age and their marriage length, most of us would believe that older divorced couples tend to have a longer marriage. However, this is not what we found from the divorce data in Texas from 2011 - 2013. As we can see from the two blue parts in the plot, the bar height stays almost the same horizontally, which means that older couples (couples whose average age equals to or greater than 40 years old) have the same number of divorces across different marriage lengths. This contradicts to our previous assumption.  
+&nbsp;&nbsp;&nbsp;&nbsp;Next, we look at the yellow and the green parts. They represent the couples with an average age between 20 to 40 years old. According to the plot, the bar height increases first, then decreases. This resembles a chi-square distribution similar to the distribution of the whole data set. We believe the reason is that, the couples between 20 to 40 years old constitute the main part of the whole dataset, and thus their distribution has a strong influence on the distribution of the whole dataset.  
+&nbsp;&nbsp;&nbsp;&nbsp;For the red and orange parts (couples under 20 years old), the number of divorces stays almost the same over the first few marriage lengths, then it decreases. In addition, we can also see that couples' marriage lengths are limited by their ages, which to some extent proves the validity of our data.  
+&nbsp;&nbsp;&nbsp;&nbsp;Also, the data records from just Harris County follows a same trend and pattern as the data from the whole Texas.  
+  
+Notes: There is one thing that worth our attention, which is, there appears to be a decent number of couples under 20 or even 10 years old. This probably is because of wrong entering of data, but after doing some research online, we found out that, according to the former marriage law in Texas, any child of any age could get married with parental and judicial approval. But, this year, thanks to a former Texas child bride, who changed the marriage laws in Texas, state lawmakers have officially made it illegal to marry under the age of 18.  
+  
+  
+  
+## Analysis No.5: Precipitation v.s. Number of Divorces
+```{r, fig.height=8}
+## Get the divorce date and marriage date 
+div_date <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT DIV_DATE
+FROM div1113_SQL;"), -1)[[1]]
+marr_date <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT MARR_DATE
+FROM div1113_SQL;"), -1)[[1]]
+
+## Extract the month out of divorce date and marriage date
+div_month <- strftime(as.Date((div_date), format = "%m/%d/%y"), "%m")
+marr_month <- strftime(as.Date((marr_date), format = "%m/%d/%y"), "%m")
+
+## Count the number of divorce and marriage in each month
+div_month_num <- table(div_month)
+marr_month_num <- table(marr_month)
+
+month_df <- data.frame(matrix(ncol = 0, nrow = 24))
+month_df$month <- c(as.data.frame(div_month_num)$div_month, as.data.frame(marr_month_num)$div_month)
+month_df$category <- c(rep("marriage", 12), rep("divorce", 12))
+month_df$count <- c(as.data.frame(marr_month_num)$Freq, as.data.frame(div_month_num)$Freq)
+
+## Plot
+p <- ggplot(data = month_df, aes(x = month, y = count, group = category, color = category)) +
+    geom_line() + geom_point() + 
+  scale_x_discrete(limits = c("1","2","3","4","5","6","7","8","9","10","11","12")) +
+  ggtitle("Divorce and Marriage by Month") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Month", y = "Count")
+
+################# Call the graph from above chunk
+a7 <- p + theme(legend.position="none")
+
+
+################ Plot precipitation v.s. month
+df7b <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT SUBSTR(DATE, 6, 2), SUM(PRCP) PRCP_TOTAL 
+FROM Harris_Monthly_Weather
+GROUP BY SUBSTR(DATE, 6, 2);"), -1)
+month <- df7b$`SUBSTR(DATE, 6, 2)`
+preci <- df7b$PRCP_TOTAL
+
+prep_df <- data.frame(matrix(ncol = 0, nrow = 12))
+prep_df$month <- df7b$`SUBSTR(DATE, 6, 2)`
+prep_df$preci <- df7b$PRCP_TOTAL
+
+## Plot
+b7 <- ggplot(data = prep_df, aes(x = month, y = preci, group = 1)) +
+  geom_line() + 
+  geom_point() + 
+  ggtitle("Precipitation by Month") +
+  theme(plot.title = element_text(hjust = 0.5))  +
+  labs(x = "Month", y = "Precipitation Amount")
+
+#b7 %<a-% plot(x = month, y = preci, type = "o", xlab = "Month", ylab = "Precipitation amount",main = "Divorce vs.precipitation", ylim = c(0, 500))
+
+
+############### Plot the integer precipitation v.s. number of divorces
+monthName <- c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+total_df <- data.frame("month" = monthName, "preci" = prep_df$preci, "freq" = as.data.frame(div_month_num)$Freq)
+
+c7 <- ggplot(total_df, aes(x = preci, y = freq)) +
+  geom_point() + geom_text(aes(label = month), hjust = 0, vjust = 0) + 
+  geom_smooth(method = "lm") +
+  xlim(150, 500) + ylim(17500, 23500) + 
+  ggtitle("Precipitation v.s. Number of Divorces") +
+  theme(plot.title = element_text(hjust = 0.5))  +
+  labs(x = "Precipitation", y = "Number of Divorces")
+
+
+################### Viewport to combine the three plots
+grid.newpage()
+print(a7, vp = viewport(x = 0.5, y = 0.8333, width = 0.7, height = 0.3333))
+print(b7, vp = viewport(x = 0.5, y = 0.5, width = 0.7, height = 0.3333))
+print(c7, vp = viewport(x = 0.5, y = 0.1667, width = 0.9, height = 0.3333))
+```
+  
+  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;We were curious about how months will affect the number of divorces and we made the first plot. In this plot, the green dots represent number of divorces in each month and the red dots represent the number of marriages for the divorced couples in Harris county. We notice that most divorces happen in the middle of the year, and fewer divorces happen at the beginning or end of the year.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;In the second plot, we introduce our auxiliary dataset – the precipitation in Harris county in each month. And this plot shows the different amount of precipitation in that month.  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;We are also interested in the relationship between amount of precipitation and number of divorces. For example, it is possible that, in the rainy days, people get sad easily and have more quarrels with their spouse. Consequently, they get mad with each other and go to Texas Department of State Health Services to get divorce. In our analysis, we used the aggregate amount of precipitation between 2011 and 2013 for each month as the x-axis, and the aggregate number of divorces between 2011 and 2013 for each month as the y-axis. Then we will have 12 points in the third plot, each of which represents the aggregate number of divorces for a given precipitation amount.  
+&nbsp;&nbsp;&nbsp;&nbsp;In the third plot, the blue line is the linear regression line and the shaded area is the 95% confidence interval. From this plot, we can find there is a weak negative linear relationship between the amount of monthly precipitation and the aggregate number of divorces.  
+&nbsp;&nbsp;&nbsp;&nbsp;But, since the slope for the regression line is too small, this is not a good linear model and we cannot use it to predict the number of divorces for a given amount of precipitation. Although the linear model is not good, it helps us reject our previous assumption. At first, we assumed that more couples get divorced during rainy days. But from the plot, it seems like there are more divorces when the precipitation amount is low.  
+  
+  
+  
+### Analysis 6: Characteristics of Different Age Groups
+```{r}
+# Fetch the conceptual plot data
+conceptual_data <- dbFetch(dbSendQuery(conn = dcon1, "
+SELECT AGE_GROUP, COUNT(*) NUM_DIV, AVG(AGE_DIFF), AVG(AVG_AGE), AVG(MARR_LEN), AVG(NUM_CHILD), AVG(W_AGE), AVG(H_AGE)
+FROM (
+  SELECT
+    ((((W_AGE + H_AGE) / 2) / 20) + 1) * 20 AGE_GROUP,
+    ABS(W_AGE - H_AGE)  AGE_DIFF,
+    (W_AGE + H_AGE) / 2 AVG_AGE,
+    DIV_YR - MARR_YR    MARR_LEN,
+    NUM_CHILD,
+    W_AGE,
+    H_AGE
+  FROM div1113_SQL
+  WHERE DIV_YR - MARR_YR < 150 AND CAST(W_AGE AS INTEGER) > 10 AND CAST(H_AGE AS INTEGER) > 10 AND CAST(NUM_CHILD AS INTEGER) < 30
+)
+GROUP BY AGE_GROUP"), -1)
+
+x_scale <- seq(0, 100, by = 20)
+y_scale <- seq(0, 80, by = 1)
+ 
+## from scratch. You will need to do something like:
+grid.newpage()
+## Create a Viewport with a Standard Plot Layout
+## margins: A numeric vector interpreted in the same way as par(mar)
+##          in base graphics.
+pushViewport(plotViewport(margins = c(5.1, 4.1, 4.1, 2.1)))
+## Create a Viewport with Scales based on Data
+pushViewport(dataViewport(x_scale, y_scale))
+#grid.rect()
+#grid.show.viewport(vp)
+
+
+
+# get circle radius for group1 (0-20years old)
+g1_num_div <- conceptual_data$NUM_DIV[1]
+g1_r_age_diff <- conceptual_data$`AVG(AGE_DIFF)`[1]/40
+g1_r_marr_len <- conceptual_data$`AVG(MARR_LEN)`[1]/150
+g1_r_num_child <- conceptual_data$`AVG(NUM_CHILD)`[1]/10
+# draw group1
+grid.circle(name = "Group1_age_diff", x = 0.13, y = 0.05, 
+            r = g1_r_age_diff + g1_r_marr_len + g1_r_num_child + 0.001, 
+            gp = gpar(fill = "green"))
+grid.circle(name = "Group1_marr_len", x = 0.13, y = 0.05, 
+            r = g1_r_marr_len + g1_r_num_child + 0.001, 
+            gp = gpar(fill = "yellow"))
+grid.circle(name = "Group_num_child", x = 0.13, y = 0.05, 
+            r = g1_r_num_child + 0.001, 
+            gp = gpar(fill = "red"))
+grid.circle(x = 0.13, y = 0.05, 
+            r = 0.001, 
+            gp = gpar(fill = "black"))
+
+
+
+# get circle radius for group2 (20-40years old)
+g2_num_div <- conceptual_data$NUM_DIV[2]
+g2_r_age_diff <- conceptual_data$`AVG(AGE_DIFF)`[2]/40
+g2_r_marr_len <- conceptual_data$`AVG(MARR_LEN)`[2]/150
+g2_r_num_child <- conceptual_data$`AVG(NUM_CHILD)`[2]/10
+# draw group2
+grid.circle(name = "Group2_age_diff", x = 0.32, y = 0.90,
+            r = g2_r_age_diff + g2_r_marr_len + g2_r_num_child + 0.001,
+            gp = gpar(fill = "green"))
+grid.circle(name = "Group1_marr_len", x = 0.32, y = 0.90,
+            r = g2_r_marr_len + g2_r_num_child + 0.001,
+            gp = gpar(fill = "yellow"))
+grid.circle(name = "Group2_num_child", x = 0.32, y = 0.90,
+            r = g2_r_num_child + 0.001,
+            gp = gpar(fill = "red"))
+grid.circle(x = 0.32, y = 0.90, 
+            r = 0.001, 
+            gp = gpar(fill = "black"))
+
+
+
+# get circle radius for group3 (40-60years old)
+g3_num_div <- conceptual_data$NUM_DIV[3]
+g3_r_age_diff <- conceptual_data$`AVG(AGE_DIFF)`[3]/40
+g3_r_marr_len <- conceptual_data$`AVG(MARR_LEN)`[3]/150
+g3_r_num_child <- conceptual_data$`AVG(NUM_CHILD)`[3]/10
+# draw group2
+grid.circle(name = "Group3_age_diff", x = 0.51, y = 0.72,
+            r = g3_r_age_diff + g3_r_marr_len + g3_r_num_child + 0.001,
+            gp = gpar(fill = "green"))
+grid.circle(name = "Group3_marr_len", x = 0.51, y = 0.72,
+            r = g3_r_marr_len + g3_r_num_child + 0.001,
+            gp = gpar(fill = "yellow"))
+grid.circle(name = "Group3_num_child", x = 0.51, y = 0.72,
+            r = g3_r_num_child + 0.001,
+            gp = gpar(fill = "red"))
+grid.circle(x = 0.51, y = 0.72, 
+            r = 0.001, 
+            gp = gpar(fill = "black"))
+
+
+# get circle radius for group4 (60-80years old)
+g4_num_div <- conceptual_data$NUM_DIV[4]
+g4_r_age_diff <- conceptual_data$`AVG(AGE_DIFF)`[4]/40
+g4_r_marr_len <- conceptual_data$`AVG(MARR_LEN)`[4]/150
+g4_r_num_child <- conceptual_data$`AVG(NUM_CHILD)`[4]/10
+# draw group4
+grid.circle(name = "Group4_age_diff", x = 0.70, y = 0.1,
+            r = g4_r_age_diff + g4_r_marr_len + g4_r_num_child + 0.001,
+            gp = gpar(fill = "green"))
+grid.circle(name = "Group4_marr_len", x = 0.70, y = 0.1,
+            r = g4_r_marr_len + g4_r_num_child + 0.001,
+            gp = gpar(fill = "yellow"))
+grid.circle(name = "Group4_num_child", x = 0.70, y = 0.1,
+            r = g4_r_num_child + 0.01,
+            gp = gpar(fill = "red"))
+grid.circle(x = 0.70, y = 0.1, 
+            r = 0.001, 
+            gp = gpar(fill = "black"))
+
+# get circle radius for group5 (80-100years old)
+g5_num_div <- conceptual_data$NUM_DIV[5]
+g5_r_age_diff <- conceptual_data$`AVG(AGE_DIFF)`[5]/40
+g5_r_marr_len <- conceptual_data$`AVG(MARR_LEN)`[5]/150
+g5_r_num_child <- conceptual_data$`AVG(NUM_CHILD)`[5]/10
+# draw group5
+grid.circle(name = "Group5_age_diff", x = 0.89, y = 0.04,
+            r = g5_r_age_diff + g5_r_marr_len + g5_r_num_child + 0.001,
+            gp = gpar(fill = "green"))
+grid.circle(name = "Group5_marr_len", x = 0.89, y = 0.04,
+            r = g5_r_marr_len + g5_r_num_child + 0.001,
+            gp = gpar(fill = "yellow"))
+grid.circle(name = "Group5_num_child", x = 0.89, y = 0.04,
+            r = g5_r_num_child + 0.001,
+            gp = gpar(fill = "red"))
+grid.circle(x = 0.89, y = 0.04, 
+            r = 0.001, 
+            gp = gpar(fill = "black"))
+
+
+##### Legends, titles
+grid.circle(name = "legend1", x = 0.8, y = 0.95, 
+            r = 0.03, 
+            gp = gpar(fill = "red"))
+grid.text("number of children", x = 0.95, y = 0.95)
+grid.circle(name = "legend2", x = 0.8, y = 0.85, 
+            r = 0.03, 
+            gp = gpar(fill = "yellow"))
+grid.text("years of marriage", x = 0.945, y = 0.85)
+grid.circle(name = "legend3", x = 0.8, y = 0.75, 
+            r = 0.03, 
+            gp = gpar(fill = "green"))
+grid.text("age difference", x = 0.935, y = 0.75)
+
+grid.text("Number of Divorces (in thousands)", x = unit(-3.5, "lines"), rot = 90)
+grid.text("Age Groups (in years)", y = unit(-3, "lines"))
+grid.text("Characteristics of Different Age Groups", y = 1.18, gp = gpar(fontface = "bold", cex = 1.2))
+
+
+grid.xaxis()
+grid.yaxis()
+```
+  
+  
+  
+In our conceptual plot above, each age group (from 0-20 years old, from 20-40 years old, from 40-60 years old, from 60-80 years old, from 80-100 years old) has a circle consisted of 3 rings of 3 different colors. The width of each ring represents the relative value of 3 variables for a specific age group: number of children, years of marriage, and age difference. We can clearly see the following points from our conceptual graph:  
+1. As the widths of the green rings barely change among different age groups except the first group (the group from 0-20 years old), we can see that the age difference is almost the same across couples of different ages.  
+2. The width of the yellow ring increases as the group’s age becomes larger and larger. Thus, marriage lengths increase as the couples become older, which makes sense intuitively, too.
+For the red wings, their widths shrink as the groups become older and older. For the oldest group, the red wing is even invisible, which means that most of the divorced couples who are 80-100 years old don’t have children. We can conclude that the older the couples, the more likely that they don’t have any child.  
+3. The vertical axis represents number of divorces for each group and the horizontal axis represents the age for each group, which determine the position of the circle’s center for each age group. When we connect the five center points by straight line, the line’s trend resembles the pattern we found in Analysis 2 (Average Age v.s. Number of Divorces).  
+  
+  
+  
+## Conclusions to the Question 
+  
+&nbsp;&nbsp;&nbsp;&nbsp;Re-cap of the project question: How are different factors (like husband's age and wife's age, marriage length, number of children, monthly precipitaion ext.) related to the number of divorces in Texas throughout 2011-2013? And are there any relationship between some of those factors?  
+  
+According to our five analysis above, we've found that:  
+1. There is a positive relationship between the husband's age and wife's age. And for any divorced couples in Texas, the estimated wife's age = husband's * 0.8 + 5.  
+2. The number of divorces is influenced by variables (age difference between husband and wife, length of marriage, couple's average age and number of children) in different ways.  
+3. Relationship between number of children and marriage length: the more children the couple has, the more likely they will stay in marriage.  
+4. We cannot find a strong relationship between precipitation and number of divorces.  
+5. Divorced couples from different age groups have different divorced characteristics.  
+  
+  
+  
+## References:
+1. Texas Department of State Health Services. (2015). Report of Divorce or Annulment Indexes (2011, 2012, 2013 versions). [The data set records information of each divorce in the state happened in 2011, 2012, and 2013, including each couple's husband name & age, wife name & age, number of child, date of marriage & divorce, and county name]. Retrieved from https://www.dshs.texas.gov/vs/marriagedivorce/dindex.shtm
+
+2. PromptCloud (user on the website called "kaggle"). (2017). Airbnb Property Data from Texas [The dataset records each Airbnb host's location, price, and description in Texas]. Retrieved from https://www.kaggle.com/PromptCloudHQ/airbnb-property-data-from-texas
+
+3. MARIA (user on the website called "gaslamp media"). 2013. Zip Code Latitude Longitude City State County CSV. [The data set records all the Texas zip codes and their associated latitude, longitude, city, state, and county]. Retrieved from https://www.gaslampmedia.com/download-zip-code-latitude-longitude-city-state-county-csv/
